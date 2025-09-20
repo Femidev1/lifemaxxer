@@ -47,29 +47,7 @@ jobs:
         shell: bash
         run: |
           python - << 'PY'
-          import os, sys, datetime, random
-          # Use UTC by default
-          now = datetime.datetime.utcnow()
-          day_key = now.strftime('%Y%m%d')
-          # Use a secret-derived salt for determinism without exposing values
-          salt = (os.getenv('TWITTER_API_KEY') or '')[-6:]
-          seed = f"{day_key}-{salt}"
-          rng = random.Random(seed)
-          hours = list(range(24))
-          chosen_hours = rng.sample(hours, 17)  # exactly 17 unique hours
-          should_post = now.hour in chosen_hours
-          delay_min = 0
-          if should_post:
-            # Deterministic minute for this hour
-            rng2 = random.Random(f"{seed}-{now.hour}")
-            delay_min = rng2.randint(0, 55)
-          # outputs
-          print(f"should_post={str(should_post).lower()}")
-          print(f"delay_min={delay_min}")
-          PY
-          # Export to GITHUB_OUTPUT
-          eval $(python - << 'PY'
-          import os, sys, datetime, random
+          import os, datetime, random
           now = datetime.datetime.utcnow()
           day_key = now.strftime('%Y%m%d')
           salt = (os.getenv('TWITTER_API_KEY') or '')[-6:]
@@ -77,15 +55,18 @@ jobs:
           rng = random.Random(seed)
           hours = list(range(24))
           chosen_hours = rng.sample(hours, 17)
-          should_post = str(now.hour in chosen_hours).lower()
-          if should_post == 'true':
-            rng2 = random.Random(f"{seed}-{now.hour}")
-            delay_min = rng2.randint(0, 55)
-          else:
-            delay_min = 0
-          print(f"echo should_post={should_post} >> $GITHUB_OUTPUT")
-          print(f"echo delay_min={delay_min} >> $GITHUB_OUTPUT")
-          PY)
+          should_post = now.hour in chosen_hours
+          delay_min = 0
+          if should_post:
+              rng2 = random.Random(f"{seed}-{now.hour}")
+              delay_min = rng2.randint(0, 55)
+          # Write to GitHub Outputs
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"should_post={'true' if should_post else 'false'}\n")
+              f.write(f"delay_min={delay_min}\n")
+          print(f"should_post={'true' if should_post else 'false'}")
+          print(f"delay_min={delay_min}")
+          PY
 
       - name: Sleep until randomized minute
         if: ${{ steps.decide.outputs.should_post == 'true' }}
