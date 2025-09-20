@@ -27,6 +27,10 @@ class TwitterClient:
 		return self._client
 
 	def post_tweet(self, text: str, dry_run: bool = False) -> Optional[str]:
+		# Safety: never attempt to post empty/whitespace text
+		if text is None or not str(text).strip():
+			print("[error] Empty tweet text; skipping post.")
+			return None
 		if dry_run:
 			return None
 		client = self._build_client()

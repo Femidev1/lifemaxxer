@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
+import time
 import os
 
 from .config import AppConfig
@@ -93,21 +94,39 @@ class ContentGenerator:
 		self._ensure_provider()
 		if not self._openai_client or not self.config.provider_model:
 			return None
-		try:
-			resp = self._openai_client.chat.completions.create(
-				model=self.config.provider_model,
-				messages=[
-					{"role": "system", "content": self._tweet_system_prompt()},
-					{"role": "user", "content": prompt.strip()},
-				],
-				temperature=0.7,
-				max_tokens=max(60, min(200, self.config.max_length)),
-			)
-			choice = resp.choices[0].message.content if resp and resp.choices else None
-			return choice.strip() if choice else None
-		except Exception as e:
-			print(f"[provider-fail] {type(e).__name__}: {e}")
-			return None
+		for attempt in range(3):
+			try:
+				resp = self._openai_client.chat.completions.create(
+					model=self.config.provider_model,
+					messages=[
+						{"role": "system", "content": self._tweet_system_prompt()},
+						{"role": "user", "content": prompt.strip()},
+					],
+					temperature=0.7,
+					max_tokens=max(60, min(200, self.config.max_length)),
+					stream=False,
+				)
+				# Some providers may still stream; handle both
+				text = ""
+				if hasattr(resp, "choices") and resp.choices:
+					choice = resp.choices[0].message.content
+					text = (choice or "").strip()
+				elif hasattr(resp, "__iter__") and not isinstance(resp, (str, bytes)):
+					chunks = []
+					for chunk in resp:
+						try:
+							delta = chunk.choices[0].delta.content or ""
+							chunks.append(delta)
+						except Exception:
+							pass
+					text = ("".join(chunks)).strip()
+				if text:
+					return text
+			except Exception as e:
+				print(f"[provider-fail attempt {attempt+1}/3] {type(e).__name__}: {e}")
+				# tiny backoff
+				time.sleep(1.0 + 0.5 * attempt)
+		return None
 
 	def _try_ollama(self, prompt: str) -> Optional[str]:
 		self._ensure_ollama()

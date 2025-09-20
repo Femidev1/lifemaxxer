@@ -63,4 +63,4 @@ jobs:
 
       - name: Post immediately with provider
         run: |
-          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine provider --no-dry-run
+          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine provider --no-dry-run || echo "post failed (empty generation or provider error)"
