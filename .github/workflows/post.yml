@@ -93,11 +93,35 @@ jobs:
           echo "Sleeping ${{ steps.decide.outputs.delay_min }} minute(s) before posting..."
           sleep $(( 60 * ${{ steps.decide.outputs.delay_min }} ))
 
+      - name: Choose prompt
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        id: choose
+        shell: bash
+        run: |
+          PROMPT=$(python - <<'PY'
+          import random, datetime
+          now = datetime.datetime.utcnow()
+          seed = int(now.strftime("%Y%m%d%H"))
+          random.seed(seed)
+          prompts = [
+            "Drop a random motivational quote, feel free to look up one on the internet or make some shit up. Also be direct a use some vulgar language",
+            "Share a direct, no-fluff motivational line about self-discipline, healthy masculinity, and respectful ways to treat women. Keep it empowering, never demeaning, no slurs or hate; under 240 chars.",
+            "Give a blunt tip on purpose, discipline, or delayed gratification. One line, under 240 chars.",
+            "Write a short, gritty reminder about building masculine character: stoicism, responsibility, leading yourself first; always respectful to women. Under 240 chars.",
+            "Punchy tweet on habits: consistency over intensity; choose one action today. Under 240 chars."
+          ]
+          print(random.choice(prompts))
+          PY
+          )
+          echo "prompt<<EOF" >> $GITHUB_OUTPUT
+          echo "$PROMPT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Post
         if: ${{ steps.decide.outputs.should_post == 'true' }}
         timeout-minutes: 6
         run: |
-          python -m bot post "Drop a random motivational quote, feel free to look up one on the internet or make some shit up. Also be direct a use some vulgar language" --engine provider --no-dry-run
+          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine provider --no-dry-run
 
       - name: Skipped (not a posting hour)
         if: ${{ steps.decide.outputs.should_post != 'true' }}
