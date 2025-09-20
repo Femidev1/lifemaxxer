@@ -58,13 +58,13 @@ class ContentGenerator:
 		engine = (preferred_engine or "auto").strip().lower()
 		if engine == "provider":
 			text = self._try_provider(prompt)
-			return self._truncate(text or self._fallback(prompt))
+			return self._truncate(text or "")
 		if engine == "ollama":
 			text = self._try_ollama(prompt)
-			return self._truncate(text or self._fallback(prompt))
+			return self._truncate(text or "")
 		if engine == "hf":
 			text = self._try_hf(prompt)
-			return self._truncate(text or self._fallback(prompt))
+			return self._truncate(text or "")
 		if engine == "fallback":
 			return self._truncate(self._fallback(prompt))
 
@@ -82,8 +82,11 @@ class ContentGenerator:
 
 	def _tweet_system_prompt(self) -> str:
 		return (
-			"You are a social media copywriter. Write a single high-quality tweet "
-			"under 240 characters, clear, actionable, no hashtags, no emojis."
+			"You are a social media copywriter for a blunt, red‑pill style account. "
+			"Write ONE tweet under 240 characters. Tone: raw, direct, confident, no fluff. "
+			"Profanity is allowed (e.g., fuck, shit, damn) but ABSOLUTELY NO hate speech, slurs, threats, or demeaning groups. "
+			"Themes: masculinity, women & dating dynamics, purpose, goals, growth, discipline. "
+			"Offer a punchy truth or imperative. No hashtags, no emojis, no disclaimers, no quotes from you about being an AI."
 		)
 
 	def _try_provider(self, prompt: str) -> Optional[str]:
