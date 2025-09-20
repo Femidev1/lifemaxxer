@@ -47,6 +47,9 @@ jobs:
             echo "Provider not configured (PROVIDER_* secrets missing)."
             exit 1
           fi
+          # OpenRouter optional headers to improve acceptance
+          echo "OPENROUTER_REFERER=https://github.com/${{ github.repository }}" >> $GITHUB_ENV
+          echo "OPENROUTER_TITLE=Lifemaxxer Bot" >> $GITHUB_ENV
 
       - name: Decide if posting this hour
         id: decide

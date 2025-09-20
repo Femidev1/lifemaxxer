@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
+import os
 
 from .config import AppConfig
 
@@ -20,10 +21,17 @@ class ContentGenerator:
 			return
 		try:
 			from openai import OpenAI  # type: ignore
-			self._openai_client = OpenAI(
-				api_key=self.config.provider_api_key,
-				base_url=self.config.provider_base_url,
-			)
+			kwargs = {
+				"api_key": self.config.provider_api_key,
+				"base_url": self.config.provider_base_url,
+			}
+			# OpenRouter prefers referer/title headers for free usage
+			if "openrouter.ai" in (self.config.provider_base_url or ""):
+				kwargs["default_headers"] = {
+					"HTTP-Referer": os.getenv("OPENROUTER_REFERER", "https://github.com/Femidev1/lifemaxxer"),
+					"X-Title": os.getenv("OPENROUTER_TITLE", "Lifemaxxer Bot"),
+				}
+			self._openai_client = OpenAI(**kwargs)
 		except Exception:
 			self._openai_client = None
 
@@ -94,7 +102,8 @@ class ContentGenerator:
 			)
 			choice = resp.choices[0].message.content if resp and resp.choices else None
 			return choice.strip() if choice else None
-		except Exception:
+		except Exception as e:
+			print(f"[provider-fail] {type(e).__name__}: {e}")
 			return None
 
 	def _try_ollama(self, prompt: str) -> Optional[str]:
