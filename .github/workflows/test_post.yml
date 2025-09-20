@@ -12,6 +12,9 @@ jobs:
       TWITTER_API_KEY_SECRET: ${{ secrets.TWITTER_API_KEY_SECRET }}
       TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
       TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
+      PROVIDER_BASE_URL: ${{ secrets.PROVIDER_BASE_URL }}
+      PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
+      PROVIDER_MODEL: ${{ secrets.PROVIDER_MODEL }}
       MAX_LENGTH: 220
       DRY_RUN_DEFAULT: 'false'
     steps:
@@ -26,7 +29,38 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Post a test tweet (no generation)
+      - name: Fail fast if provider not configured
         run: |
-          stamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          python -m bot post-text "Action test ping: $stamp" --no-dry-run
+          if [ -z "${PROVIDER_API_KEY}" ] || [ -z "${PROVIDER_BASE_URL}" ] || [ -z "${PROVIDER_MODEL}" ]; then
+            echo "Provider not configured (PROVIDER_* secrets missing)."
+            exit 1
+          fi
+          echo "OPENROUTER_REFERER=https://github.com/${{ github.repository }}" >> $GITHUB_ENV
+          echo "OPENROUTER_TITLE=Lifemaxxer Bot" >> $GITHUB_ENV
+
+      - name: Choose prompt
+        id: choose
+        shell: bash
+        run: |
+          PROMPT=$(python - <<'PY'
+          import random, datetime
+          now = datetime.datetime.utcnow()
+          seed = int(now.strftime("%Y%m%d%H%M%S"))
+          random.seed(seed)
+          prompts = [
+            "Drop a random motivational quote, feel free to look up one on the internet or make some shit up. Also be direct a use some vulgar language",
+            "Share a direct, no-fluff motivational line about self-discipline, healthy masculinity, and respectful ways to treat women. Keep it empowering, never demeaning, no slurs or hate; under 240 chars.",
+            "Give a blunt tip on purpose, discipline, or delayed gratification. One line, under 240 chars.",
+            "Write a short, gritty reminder about building masculine character: stoicism, responsibility, leading yourself first; always respectful to women. Under 240 chars.",
+            "Punchy tweet on habits: consistency over intensity; choose one action today. Under 240 chars."
+          ]
+          print(random.choice(prompts))
+          PY
+          )
+          echo "prompt<<EOF" >> $GITHUB_OUTPUT
+          echo "$PROMPT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post immediately with provider
+        run: |
+          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine provider --no-dry-run
