@@ -1,18 +1,19 @@
-name: Post to X every 2 hours
+name: Post to X randomly 17/day
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: '0 * * * *'
 
 jobs:
   post:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 70
     concurrency:
-      group: post-to-x
+      group: post-to-x-hourly
       cancel-in-progress: false
     env:
+      TZ: UTC
       TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
       TWITTER_API_KEY_SECRET: ${{ secrets.TWITTER_API_KEY_SECRET }}
       TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
@@ -41,7 +42,63 @@ jobs:
             exit 1
           fi
 
+      - name: Decide if posting this hour
+        id: decide
+        shell: bash
+        run: |
+          python - << 'PY'
+          import os, sys, datetime, random
+          # Use UTC by default
+          now = datetime.datetime.utcnow()
+          day_key = now.strftime('%Y%m%d')
+          # Use a secret-derived salt for determinism without exposing values
+          salt = (os.getenv('TWITTER_API_KEY') or '')[-6:]
+          seed = f"{day_key}-{salt}"
+          rng = random.Random(seed)
+          hours = list(range(24))
+          chosen_hours = rng.sample(hours, 17)  # exactly 17 unique hours
+          should_post = now.hour in chosen_hours
+          delay_min = 0
+          if should_post:
+            # Deterministic minute for this hour
+            rng2 = random.Random(f"{seed}-{now.hour}")
+            delay_min = rng2.randint(0, 55)
+          # outputs
+          print(f"should_post={str(should_post).lower()}")
+          print(f"delay_min={delay_min}")
+          PY
+          # Export to GITHUB_OUTPUT
+          eval $(python - << 'PY'
+          import os, sys, datetime, random
+          now = datetime.datetime.utcnow()
+          day_key = now.strftime('%Y%m%d')
+          salt = (os.getenv('TWITTER_API_KEY') or '')[-6:]
+          seed = f"{day_key}-{salt}"
+          rng = random.Random(seed)
+          hours = list(range(24))
+          chosen_hours = rng.sample(hours, 17)
+          should_post = str(now.hour in chosen_hours).lower()
+          if should_post == 'true':
+            rng2 = random.Random(f"{seed}-{now.hour}")
+            delay_min = rng2.randint(0, 55)
+          else:
+            delay_min = 0
+          print(f"echo should_post={should_post} >> $GITHUB_OUTPUT")
+          print(f"echo delay_min={delay_min} >> $GITHUB_OUTPUT")
+          PY)
+
+      - name: Sleep until randomized minute
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: |
+          echo "Sleeping ${{ steps.decide.outputs.delay_min }} minute(s) before posting..."
+          sleep $(( 60 * ${{ steps.decide.outputs.delay_min }} ))
+
       - name: Post
-        timeout-minutes: 5
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        timeout-minutes: 6
         run: |
           python -m bot post "Drop a random motivational quote, feel free to look up one on the internet or make some shit up. Also be direct a use some vulgar language" --engine provider --no-dry-run
+
+      - name: Skipped (not a posting hour)
+        if: ${{ steps.decide.outputs.should_post != 'true' }}
+        run: echo "Not a posting hour for today; skipping."
