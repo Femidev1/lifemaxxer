@@ -170,7 +170,42 @@ class ContentGenerator:
 			return None
 
 	def _fallback(self, prompt: str) -> str:
-		return f"{prompt.strip()} — Sharing a quick thought for the day."
+		# Heuristic, never echo raw prompt. Build a short motivational line.
+		try:
+			import random
+			themes = [
+				("discipline", [
+					"Discipline is choosing what you want most over what you want now.",
+					"Small reps, every day. That's how momentum is built.",
+					"Consistency beats intensity when the dust settles.",
+				]),
+				("masculinity", [
+					"Lead yourself first: responsibility, courage, restraint.",
+					"Strength without respect is weakness wearing armor.",
+					"Be the man who chooses character when no one is watching.",
+				]),
+				("women", [
+					"Respect her by respecting yourself: clear standards, steady actions.",
+					"Listen, lead with kindness, and keep your word.",
+					"Admire, don’t idolize; respect, don’t control.",
+				]),
+				("purpose", [
+					"Build your day around your purpose, not your impulses.",
+					"Aim at something worth failing for, then get to work.",
+					"Purpose turns pain into fuel; use it.",
+				]),
+			]
+			# bias theme by prompt keywords
+			p = prompt.lower()
+			weights = []
+			for key, lines in themes:
+				w = 2 if key in p else 1
+				weights.append(w)
+			idx = random.choices(range(len(themes)), weights=weights, k=1)[0]
+			line = random.choice(themes[idx][1])
+			return line[: self.config.max_length]
+		except Exception:
+			return "Keep going. One honest step today beats perfect tomorrow."
 
 	def _truncate(self, text: str) -> str:
 		# X currently supports 280 chars for standard accounts; allow a small buffer.

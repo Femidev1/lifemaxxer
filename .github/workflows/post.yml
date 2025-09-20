@@ -115,6 +115,7 @@ jobs:
         if: ${{ steps.decide.outputs.should_post == 'true' }}
         timeout-minutes: 6
         run: |
+          echo "PROMPT: ${{ steps.choose.outputs.prompt }}"
           python -m bot post "${{ steps.choose.outputs.prompt }}" --engine provider --no-dry-run
 
       - name: Skipped (not a posting hour)
