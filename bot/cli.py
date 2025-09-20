@@ -53,10 +53,10 @@ def post(
 		raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
 	config, generator, twitter = _load_components()
 	use_dry_run = config.dry_run_default if dry_run is None else dry_run
-    text = generator.generate(prompt, preferred_engine=engine)
-    if not text:
-        print("[error] Empty generation result; not posting.")
-        return
+	text = generator.generate(prompt, preferred_engine=engine)
+	if not text:
+		print("[error] Empty generation result; not posting.")
+		return
 	print(text)
 	if use_dry_run:
 		print("[dry-run] Skipping post.")
