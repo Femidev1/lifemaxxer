@@ -2,6 +2,11 @@ name: Post to X randomly 17/day
 
 on:
   workflow_dispatch:
+    inputs:
+      force_now:
+        description: "Post immediately (skip hourly selection)"
+        required: false
+        default: "false"
   schedule:
     - cron: '0 * * * *'
 
@@ -14,6 +19,7 @@ jobs:
       cancel-in-progress: false
     env:
       TZ: UTC
+      FORCE_NOW: ${{ github.event.inputs.force_now }}
       TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
       TWITTER_API_KEY_SECRET: ${{ secrets.TWITTER_API_KEY_SECRET }}
       TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
@@ -55,11 +61,15 @@ jobs:
           rng = random.Random(seed)
           hours = list(range(24))
           chosen_hours = rng.sample(hours, 17)
-          should_post = now.hour in chosen_hours
+          force_now = (os.getenv('FORCE_NOW','false').lower() == 'true')
+          should_post = force_now or (now.hour in chosen_hours)
           delay_min = 0
           if should_post:
-              rng2 = random.Random(f"{seed}-{now.hour}")
-              delay_min = rng2.randint(0, 55)
+              if force_now:
+                  delay_min = 0
+              else:
+                  rng2 = random.Random(f"{seed}-{now.hour}")
+                  delay_min = rng2.randint(0, 55)
           # Write to GitHub Outputs
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"should_post={'true' if should_post else 'false'}\n")
