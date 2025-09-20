@@ -83,18 +83,19 @@ class ContentGenerator:
 
 	def _tweet_system_prompt(self) -> str:
 		return (
-			"You are a social media copywriter for a blunt, red‑pill style account. "
+			"You are a social media copywriter for a blunt red pill style account. "
 			"Write ONE tweet under 240 characters. Tone: raw, direct, confident, no fluff. "
-			"Profanity is allowed (e.g., fuck, shit, damn) but ABSOLUTELY NO hate speech, slurs, threats, or demeaning groups. "
-			"Themes: masculinity, women & dating dynamics, purpose, goals, growth, discipline. "
-			"Offer a punchy truth or imperative. No hashtags, no emojis, no disclaimers, no quotes from you about being an AI."
+			"Profanity may appear (fuck, shit, damn) but ABSOLUTELY NO hate speech, slurs, threats, or demeaning groups. "
+			"Themes: masculinity, women and dating dynamics, purpose, goals, growth, discipline. "
+			"Keep it short, blunt, and direct. One sentence only. No em dashes; use plain sentences. "
+			"No hashtags, no emojis, no disclaimers, no quotes from you about being an AI."
 		)
 
 	def _try_provider(self, prompt: str) -> Optional[str]:
 		self._ensure_provider()
 		if not self._openai_client or not self.config.provider_model:
 			return None
-		for attempt in range(3):
+		for attempt in range(5):
 			try:
 				resp = self._openai_client.chat.completions.create(
 					model=self.config.provider_model,
@@ -106,26 +107,44 @@ class ContentGenerator:
 					max_tokens=max(60, min(200, self.config.max_length)),
 					stream=False,
 				)
-				# Some providers may still stream; handle both
+				# Non-streaming response path
 				text = ""
 				if hasattr(resp, "choices") and resp.choices:
-					choice = resp.choices[0].message.content
-					text = (choice or "").strip()
+					msg = resp.choices[0].message
+					parts = []
+					try:
+						val = getattr(msg, "content", None)
+						if val:
+							parts.append(val)
+					except Exception:
+						pass
+					try:
+						val = getattr(msg, "reasoning", None)
+						if val:
+							parts.append(val)
+					except Exception:
+						pass
+					text = " ".join(parts).strip()
 				elif hasattr(resp, "__iter__") and not isinstance(resp, (str, bytes)):
+					# Streaming chunks path
 					chunks = []
 					for chunk in resp:
 						try:
-							delta = chunk.choices[0].delta.content or ""
-							chunks.append(delta)
+							d = chunk.choices[0].delta
+							val = getattr(d, "content", None) or getattr(d, "reasoning", None) or ""
+							chunks.append(val)
 						except Exception:
 							pass
 					text = ("".join(chunks)).strip()
 				if text:
 					return text
+				else:
+					print("[provider-empty] Received no content/reasoning text")
 			except Exception as e:
-				print(f"[provider-fail attempt {attempt+1}/3] {type(e).__name__}: {e}")
-				# tiny backoff
-				time.sleep(1.0 + 0.5 * attempt)
+				print(f"[provider-fail attempt {attempt+1}/5] {type(e).__name__}: {e}")
+				# exponential backoff with jitter
+				delay = (2 ** attempt) * 0.75
+				time.sleep(delay)
 		return None
 
 	def _try_ollama(self, prompt: str) -> Optional[str]:
