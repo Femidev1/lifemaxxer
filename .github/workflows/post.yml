@@ -27,6 +27,7 @@ jobs:
       PROVIDER_BASE_URL: ${{ secrets.PROVIDER_BASE_URL }}
       PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
       PROVIDER_MODEL: ${{ secrets.PROVIDER_MODEL }}
+      OLLAMA_MODEL: gemma3:1b
       MAX_LENGTH: 220
       DRY_RUN_DEFAULT: 'false'
     steps:
@@ -41,15 +42,39 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Fail fast if provider not configured
+      - name: Configure engine (provider or local Ollama)
         run: |
-          if [ -z "${PROVIDER_API_KEY}" ] || [ -z "${PROVIDER_BASE_URL}" ] || [ -z "${PROVIDER_MODEL}" ]; then
-            echo "Provider not configured (PROVIDER_* secrets missing)."
-            exit 1
+          if [ -n "${PROVIDER_API_KEY}" ] && [ -n "${PROVIDER_BASE_URL}" ] && [ -n "${PROVIDER_MODEL}" ]; then
+            echo "ENGINE=provider" >> $GITHUB_ENV
+            echo "OPENROUTER_REFERER=https://github.com/${{ github.repository }}" >> $GITHUB_ENV
+            echo "OPENROUTER_TITLE=Lifemaxxer Bot" >> $GITHUB_ENV
+            curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null || {
+              echo "Failed to reach provider at ${PROVIDER_BASE_URL}"; exit 1; }
+          else
+            echo "ENGINE=ollama" >> $GITHUB_ENV
+            echo "Using local Ollama on the runner."
           fi
-          # OpenRouter optional headers to improve acceptance
-          echo "OPENROUTER_REFERER=https://github.com/${{ github.repository }}" >> $GITHUB_ENV
-          echo "OPENROUTER_TITLE=Lifemaxxer Bot" >> $GITHUB_ENV
+
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-models-${{ runner.os }}-gemma3-1b-v1
+          restore-keys: |
+            ollama-models-${{ runner.os }}-
+
+      - name: Install and start Ollama if needed
+        run: |
+          if [ "${ENGINE}" = "ollama" ]; then
+            curl -fsSL https://ollama.com/install.sh | sh
+            nohup ollama serve >/tmp/ollama.log 2>&1 &
+            sleep 2
+            MODEL=${OLLAMA_MODEL:-gemma3:1b}
+            ollama pull "$MODEL"
+            curl -sSf http://127.0.0.1:11434/api/tags >/dev/null
+          else
+            echo "Skipping Ollama install (provider in use)."
+          fi
 
       - name: Decide if posting this hour
         id: decide
@@ -98,11 +123,13 @@ jobs:
           seed = int(now.strftime("%Y%m%d%H"))
           random.seed(seed)
           prompts = [
-            "Write a raw, red‑pill style tweet for men about women, masculinity, purpose, goals, growth, discipline. Be blunt, confident, no fluff. No hate speech or slurs. Under 240 chars.",
+            "Write a raw, red‑pill style tweet for men about masculinity, purpose, goals, growth, discipline. Be blunt, confident, no fluff. No hate speech or slurs. Under 240 chars.",
             "Give a harsh truth for men on discipline and delayed gratification. Raw, direct; profanity allowed but no slurs. Under 240 chars.",
             "Drop unfiltered advice to men on dating dynamics: respect, standards, leading yourself first. Blunt, may use profanity; never demeaning groups. Under 240 chars.",
             "Short punch to the gut about purpose over comfort. Raw, no fluff; profanity allowed (no hate). Under 240 chars.",
             "Masculinity reminder: responsibility, courage, restraint. Make it gritty; profanity ok, no slurs. Under 240 chars."
+            "Give advice on women it should vary along the lines of never chase women, atrract them only, remain indifferent to their moods, keep your options open, always be ready to walk away, accept rejection as part of life, etc. Under 240 chars.",
+            "Give direct plain blunt advice on the importance of woeking out and semmen reten"
           ]
           print(random.choice(prompts))
           PY
@@ -116,7 +143,8 @@ jobs:
         timeout-minutes: 6
         run: |
           echo "PROMPT: ${{ steps.choose.outputs.prompt }}"
-          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine provider --no-dry-run || echo "post failed"
+          ENGINE_TO_USE=${ENGINE:-provider}
+          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed"
 
       - name: Skipped (not a posting hour)
         if: ${{ steps.decide.outputs.should_post != 'true' }}

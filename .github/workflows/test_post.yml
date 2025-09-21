@@ -15,6 +15,7 @@ jobs:
       PROVIDER_BASE_URL: ${{ secrets.PROVIDER_BASE_URL }}
       PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
       PROVIDER_MODEL: ${{ secrets.PROVIDER_MODEL }}
+      OLLAMA_MODEL: gemma3:1b
       MAX_LENGTH: 220
       DRY_RUN_DEFAULT: 'false'
     steps:
@@ -29,20 +30,39 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Configure LiteLLM/Ollama provider
+      - name: Configure engine (provider or local Ollama)
         run: |
-          if [ -z "${PROVIDER_API_KEY}" ] || [ -z "${PROVIDER_BASE_URL}" ] || [ -z "${PROVIDER_MODEL}" ]; then
-            echo "Provider not configured (set PROVIDER_BASE_URL, PROVIDER_API_KEY, PROVIDER_MODEL)."
-            echo "Expected: PROVIDER_BASE_URL=https://<your-cloudflared-url>/v1, PROVIDER_API_KEY=<local-secret>, PROVIDER_MODEL=ollama/llama3.1:8b-instruct"
-            exit 1
+          if [ -n "${PROVIDER_API_KEY}" ] && [ -n "${PROVIDER_BASE_URL}" ] && [ -n "${PROVIDER_MODEL}" ]; then
+            echo "ENGINE=provider" >> $GITHUB_ENV
+            # Quick connectivity check for provider
+            curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null || {
+              echo "Failed to reach provider at ${PROVIDER_BASE_URL}"; exit 1; }
+          else
+            echo "ENGINE=ollama" >> $GITHUB_ENV
+            echo "Using local Ollama on the runner."
           fi
-          # Default model if not provided
-          if [ -z "${PROVIDER_MODEL}" ]; then
-            echo "PROVIDER_MODEL=ollama/llama3.1:8b-instruct" >> $GITHUB_ENV
+
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-models-${{ runner.os }}-gemma3-1b-v1
+          restore-keys: |
+            ollama-models-${{ runner.os }}-
+
+      - name: Install and start Ollama if needed
+        run: |
+          if [ "${ENGINE}" = "ollama" ]; then
+            curl -fsSL https://ollama.com/install.sh | sh
+            nohup ollama serve >/tmp/ollama.log 2>&1 &
+            # give the server a moment
+            sleep 2
+            MODEL=${OLLAMA_MODEL:-gemma3:1b}
+            ollama pull "$MODEL"
+            curl -sSf http://127.0.0.1:11434/api/tags >/dev/null
+          else
+            echo "Skipping Ollama install (provider in use)."
           fi
-          # Quick connectivity check
-          curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null || {
-            echo "Failed to reach provider at ${PROVIDER_BASE_URL}; ensure cloudflared tunnel is running to your LiteLLM server"; exit 1; }
 
       - name: Choose prompt
         id: choose
@@ -67,6 +87,7 @@ jobs:
           echo "$PROMPT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Post immediately with provider
+      - name: Post immediately
         run: |
-          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine provider --no-dry-run || echo "post failed (empty generation or provider error)"
+          ENGINE_TO_USE=${ENGINE:-provider}
+          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (empty generation or provider error)"
