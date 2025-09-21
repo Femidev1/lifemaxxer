@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 70
     concurrency:
       group: post-to-x-hourly
-      cancel-in-progress: false
+      cancel-in-progress: true
     env:
       TZ: UTC
       FORCE_NOW: ${{ github.event.inputs.force_now }}
@@ -30,6 +30,7 @@ jobs:
       OLLAMA_MODEL: qwen2.5:3b-instruct
       MAX_LENGTH: 220
       DRY_RUN_DEFAULT: 'false'
+      TWITTER_WAIT_ON_RATE_LIMIT: 'true'
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -106,7 +107,8 @@ jobs:
                   delay_min = 0
               else:
                   rng2 = random.Random(f"{seed}-{now.hour}")
-                  delay_min = rng2.randint(0, 55)
+                  # Cap delay to <=25 min to avoid overlap with next hour's run
+                  delay_min = rng2.randint(0, 25)
           # Write to GitHub Outputs
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"should_post={'true' if should_post else 'false'}\n")
