@@ -33,10 +33,12 @@ jobs:
       - name: Configure engine (provider or local Ollama)
         run: |
           if [ -n "${PROVIDER_API_KEY}" ] && [ -n "${PROVIDER_BASE_URL}" ] && [ -n "${PROVIDER_MODEL}" ]; then
-            echo "ENGINE=provider" >> $GITHUB_ENV
-            # Quick connectivity check for provider
-            curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null || {
-              echo "Failed to reach provider at ${PROVIDER_BASE_URL}"; exit 1; }
+            if curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null; then
+              echo "ENGINE=provider" >> $GITHUB_ENV
+            else
+              echo "Provider unreachable at ${PROVIDER_BASE_URL}; falling back to runner Ollama"
+              echo "ENGINE=ollama" >> $GITHUB_ENV
+            fi
           else
             echo "ENGINE=ollama" >> $GITHUB_ENV
             echo "Using local Ollama on the runner."
