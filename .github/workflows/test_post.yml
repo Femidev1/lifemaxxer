@@ -2,6 +2,11 @@ name: Test post now
 
 on:
   workflow_dispatch:
+    inputs:
+      use_stoic:
+        description: "Use Stoic API instead of generated prompt"
+        required: false
+        default: "true"
 
 jobs:
   post_now:
@@ -32,6 +37,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Configure engine (provider or local Ollama)
+        if: ${{ github.event.inputs.use_stoic != 'true' }}
         run: |
           if [ -n "${PROVIDER_API_KEY}" ] && [ -n "${PROVIDER_BASE_URL}" ] && [ -n "${PROVIDER_MODEL}" ]; then
             if curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null; then
@@ -46,6 +52,7 @@ jobs:
           fi
 
       - name: Cache Ollama models
+        if: ${{ github.event.inputs.use_stoic != 'true' }}
         uses: actions/cache@v4
         with:
           path: ~/.ollama
@@ -54,6 +61,7 @@ jobs:
             ollama-models-${{ runner.os }}-
 
       - name: Install and start Ollama if needed
+        if: ${{ github.event.inputs.use_stoic != 'true' }}
         run: |
           if [ "${ENGINE}" = "ollama" ]; then
             if ! command -v ollama >/dev/null 2>&1; then
@@ -74,6 +82,7 @@ jobs:
           fi
 
       - name: Choose prompt
+        if: ${{ github.event.inputs.use_stoic != 'true' }}
         id: choose
         shell: bash
         run: |
@@ -82,14 +91,12 @@ jobs:
           now = datetime.datetime.utcnow()
           seed = int(now.strftime("%Y%m%d%H%M%S"))
           random.seed(seed)
-          prompts = [
+              prompts = [
             "Write a raw, red‑pill style tweet for men about masculinity, purpose, goals, growth, discipline. Be blunt, confident, no fluff. No hate speech or slurs. Be direct , blunt and harsh. Under 150 chars.",
             "Give a harsh truth for men on discipline and delayed gratification. Raw, direct; profanity allowed but no slurs. Be direct , blunt and harsh. Under 150 chars.",
             "Drop unfiltered advice to men on dating dynamics: respect, standards, leading yourself first. Blunt, may use profanity; never demeaning groups. Be direct , blunt and harsh. Under 150 chars.",
             "Short punch to the gut about purpose over comfort. Raw, no fluff; profanity allowed (no hate). Be direct , blunt and harsh. Under 150 chars.",
             "Masculinity reminder: responsibility, courage, restraint. Make it gritty; profanity ok, no slurs. Be direct , blunt and harsh. Under 150 chars.",
-            "Give advice on women it should vary along the lines of never chase women, atrract them only, remain indifferent to their moods, keep your options open, always be ready to walk away, accept rejection as part of life, etc. Be direct , blunt and harsh Under 150 chars.",
-            "Give direct plain blunt advice on the importance of working out and semmen retention and the dangers of poor lust control, Be direct , blunt and harsh. Under 150 chars.",
           ]
           print(random.choice(prompts))
           PY
@@ -99,6 +106,12 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Post immediately
+        if: ${{ github.event.inputs.use_stoic != 'true' }}
         run: |
           ENGINE_TO_USE=${ENGINE:-provider}
           python -m bot post "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (empty generation or provider error)"
+
+      - name: Post Stoic immediately
+        if: ${{ github.event.inputs.use_stoic == 'true' }}
+        run: |
+          python -m bot post-stoic --no-dry-run || echo "post failed (stoic fetch or twitter error)"
