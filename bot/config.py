@@ -16,9 +16,9 @@ class AppConfig(BaseModel):
 	twitter_bearer_token: Optional[str] = None
 
 	# Hosted provider (OpenAI-compatible)
-    provider_api_key: Optional[str] = None
-    provider_base_url: Optional[str] = None
-    provider_model: Optional[str] = None  # e.g., ollama/llama3.1:8b-instruct via LiteLLM
+	provider_api_key: Optional[str] = None
+	provider_base_url: Optional[str] = None
+	provider_model: Optional[str] = None  # e.g., ollama/llama3.1:8b-instruct via LiteLLM
 
 	# Content generation
 	ollama_model: str = "llama3.1:8b-instruct"
