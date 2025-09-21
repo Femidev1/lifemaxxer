@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 70
     concurrency:
       group: post-to-x-hourly
-      cancel-in-progress: true
+      cancel-in-progress: false
     env:
       TZ: UTC
       FORCE_NOW: ${{ github.event.inputs.force_now }}
@@ -39,52 +39,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Configure engine (provider or local Ollama)
-        run: |
-          if [ -n "${PROVIDER_API_KEY}" ] && [ -n "${PROVIDER_BASE_URL}" ] && [ -n "${PROVIDER_MODEL}" ]; then
-            if curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null; then
-              echo "ENGINE=provider" >> $GITHUB_ENV
-              echo "OPENROUTER_REFERER=https://github.com/${{ github.repository }}" >> $GITHUB_ENV
-              echo "OPENROUTER_TITLE=Lifemaxxer Bot" >> $GITHUB_ENV
-            else
-              echo "Provider unreachable at ${PROVIDER_BASE_URL}; falling back to runner Ollama"
-              echo "ENGINE=ollama" >> $GITHUB_ENV
-            fi
-          else
-            echo "ENGINE=ollama" >> $GITHUB_ENV
-            echo "Using local Ollama on the runner."
-          fi
-
-      - name: Cache Ollama models
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama
-          key: ollama-models-${{ runner.os }}-qwen2.5-3b-instruct-v1
-          restore-keys: |
-            ollama-models-${{ runner.os }}-
-
-      - name: Install and start Ollama if needed
-        run: |
-          if [ "${ENGINE}" = "ollama" ]; then
-            if ! command -v ollama >/dev/null 2>&1; then
-              curl -fsSL https://ollama.com/install.sh | sh
-            fi
-            nohup ollama serve >/tmp/ollama.log 2>&1 &
-            sleep 2
-            MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
-            if ollama list | awk '{print $1}' | grep -qx "$MODEL"; then
-              echo "Ollama model '$MODEL' already present; skipping pull."
-            else
-              ollama pull "$MODEL"
-            fi
-            curl -sSf http://127.0.0.1:11434/api/tags >/dev/null
-          else
-            echo "Skipping Ollama install (provider in use)."
-          fi
 
       - name: Decide if posting this hour
         id: decide
@@ -123,6 +77,54 @@ jobs:
           echo "Sleeping ${{ steps.decide.outputs.delay_min }} minute(s) before posting..."
           sleep $(( 60 * ${{ steps.decide.outputs.delay_min }} ))
 
+      - name: Install dependencies
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: pip install -r requirements.txt
+
+      - name: Configure engine (provider or local Ollama)
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: |
+          if [ -n "${PROVIDER_API_KEY}" ] && [ -n "${PROVIDER_BASE_URL}" ] && [ -n "${PROVIDER_MODEL}" ]; then
+            if curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null; then
+              echo "ENGINE=provider" >> $GITHUB_ENV
+              echo "OPENROUTER_REFERER=https://github.com/${{ github.repository }}" >> $GITHUB_ENV
+              echo "OPENROUTER_TITLE=Lifemaxxer Bot" >> $GITHUB_ENV
+            else
+              echo "Provider unreachable at ${PROVIDER_BASE_URL}; falling back to runner Ollama"
+              echo "ENGINE=ollama" >> $GITHUB_ENV
+            fi
+          else
+            echo "ENGINE=ollama" >> $GITHUB_ENV
+            echo "Using local Ollama on the runner."
+          fi
+
+      - name: Cache Ollama models
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-models-${{ runner.os }}-qwen2.5-3b-instruct-v1
+        
+      - name: Install and start Ollama if needed
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: |
+          if [ "${ENGINE}" = "ollama" ]; then
+            if ! command -v ollama >/dev/null 2>&1; then
+              curl -fsSL https://ollama.com/install.sh | sh
+            fi
+            nohup ollama serve >/tmp/ollama.log 2>&1 &
+            sleep 2
+            MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
+            if ollama list | awk '{print $1}' | grep -qx "$MODEL"; then
+              echo "Ollama model '$MODEL' already present; skipping pull."
+            else
+              ollama pull "$MODEL"
+            fi
+            curl -sSf http://127.0.0.1:11434/api/tags >/dev/null
+          else
+            echo "Skipping Ollama install (provider in use)."
+          fi
+
       - name: Choose prompt
         if: ${{ steps.decide.outputs.should_post == 'true' }}
         id: choose
@@ -139,8 +141,6 @@ jobs:
             "Drop unfiltered advice to men on dating dynamics: respect, standards, leading yourself first. Blunt, may use profanity; never demeaning groups. Be direct , blunt and harsh. Under 150 chars.",
             "Short punch to the gut about purpose over comfort. Raw, no fluff; profanity allowed (no hate). Be direct , blunt and harsh. Under 150 chars.",
             "Masculinity reminder: responsibility, courage, restraint. Make it gritty; profanity ok, no slurs. Be direct , blunt and harsh. Under 150 chars.",
-            "Give advice on women it should vary along the lines of never chase women, atrract them only, remain indifferent to their moods, keep your options open, always be ready to walk away, accept rejection as part of life, etc. Be direct , blunt and harsh Under 150 chars.",
-            "Give direct plain blunt advice on the importance of working out and semmen retention and the dangers of poor lust control, Be direct , blunt and harsh. Under 150 chars.",
           ]
           print(random.choice(prompts))
           PY
