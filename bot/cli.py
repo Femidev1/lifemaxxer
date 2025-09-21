@@ -213,12 +213,19 @@ def post_stoic_image(
     if ai_image:
         try:
             ai = AIImageClient(config)
-            # Build a simple visual prompt from the tweet text
-            vis_prompt = (
-                "Stoic minimalist poster, high contrast, cinematic lighting, textured paper background, "
-                "clean empty space for typography, no people, no text, professional design"
+            # Build an SDXL-style visual prompt from the tweet via the LLM
+            prompt_seed = (
+                "Craft a concise SDXL visual prompt (max ~50 tokens) matching this Stoic tweet. "
+                "Themes: greek philosopher or greek warrior or modern soldier or battle scene or chess match;"
+                " vibe: dark, mysterious, moody lighting; NO embedded text. Return only the prompt.\n\n"
+                f"Tweet: {tweet}"
             )
-            bg_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=22)
+            vis_prompt = generator.generate(prompt_seed, preferred_engine=engine)
+            neg = config.horde_negative_prompt or (
+                "text, watermark, signature, logo, blurry, lowres, artifacts, deformed, extra fingers, bad anatomy"
+            )
+            models = [config.horde_model] if config.horde_model else ["SDXL 1.0"]
+            bg_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=28, negative_prompt=neg, models=models)
             if bg_bytes:
                 from PIL import Image
                 import io

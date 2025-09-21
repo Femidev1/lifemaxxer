@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import time
 import requests
@@ -20,16 +20,33 @@ class AIImageClient:
 		self.base_url = (config.horde_base_url or "https://stablehorde.net/api").rstrip("/")
 		self.api_key = config.horde_api_key or "0000000000"  # anonymous
 
-	def generate(self, prompt: str, width: int = 768, height: int = 1024, steps: int = 20) -> Optional[bytes]:
+	def generate(
+		self,
+		prompt: str,
+		width: int = 768,
+		height: int = 1024,
+		steps: int = 20,
+		negative_prompt: Optional[str] = None,
+		models: Optional[List[str]] = None,
+	) -> Optional[bytes]:
 		try:
-			job_id = self._submit(prompt, width, height, steps)
+			job_id = self._submit(prompt, width, height, steps, negative_prompt=negative_prompt, models=models)
 			if not job_id:
 				return None
 			return self._await_and_fetch(job_id)
 		except Exception:
 			return None
 
-	def _submit(self, prompt: str, width: int, height: int, steps: int) -> Optional[str]:
+	def _submit(
+		self,
+		prompt: str,
+		width: int,
+		height: int,
+		steps: int,
+		*,
+		negative_prompt: Optional[str] = None,
+		models: Optional[List[str]] = None,
+	) -> Optional[str]:
 		url = f"{self.base_url}/v2/generate/async"
 		headers = {"apikey": self.api_key, "accept": "application/json", "content-type": "application/json"}
 		body: Dict[str, Any] = {
@@ -45,6 +62,10 @@ class AIImageClient:
 			"censor_nsfw": True,
 			"r2": True,
 		}
+		if negative_prompt:
+			body["negative_prompt"] = negative_prompt
+		if models:
+			body["models"] = models
 		r = requests.post(url, json=body, headers=headers, timeout=20)
 		r.raise_for_status()
 		data = r.json()
