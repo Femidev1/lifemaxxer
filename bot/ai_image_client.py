@@ -56,6 +56,10 @@ class AIImageClient:
 				"height": int(height),
 				"steps": int(steps),
 				"n": 1,
+				"cfg_scale": 7,
+				"karras": True,
+				"clip_skip": 1,
+				"post_processing": [],
 			},
 			"prompt": self._build_prompt(prompt),
 			"nsfw": False,
@@ -63,7 +67,7 @@ class AIImageClient:
 			"r2": True,
 		}
 		if negative_prompt:
-			body["negative_prompt"] = negative_prompt
+			body["params"]["negative_prompt"] = negative_prompt
 		if models:
 			body["models"] = models
 		r = requests.post(url, json=body, headers=headers, timeout=20)
