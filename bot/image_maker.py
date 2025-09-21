@@ -29,7 +29,7 @@ class ImageMaker:
 		current = []
 		for w in words:
 			trial = (" ".join(current + [w])).strip()
-			w_px, _ = draw.textsize(trial, font=font)
+			w_px, _ = self._measure(draw, trial, font)
 			if w_px <= max_width or not current:
 				current.append(w)
 			else:
@@ -38,6 +38,12 @@ class ImageMaker:
 		if current:
 			lines.append(" ".join(current))
 		return "\n".join(lines)
+
+	def _measure(self, draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont) -> tuple[int, int]:
+		bbox = draw.textbbox((0, 0), text, font=font)
+		width = max(0, bbox[2] - bbox[0])
+		height = max(0, bbox[3] - bbox[1])
+		return width, height
 
 	def compose_quote(self, text: str, background: Image.Image | None = None) -> bytes:
 		# Use provided background if any; otherwise fetch a random one
@@ -63,11 +69,11 @@ class ImageMaker:
 
 		# Draw text centered
 		lines = wrapped.splitlines()
-		line_height = draw.textsize("Ag", font=font)[1] + 8
+		line_height = self._measure(draw, "Ag", font)[1] + 8
 		total_h = line_height * len(lines)
 		y = max(overlay_top + (overlay_h - total_h) // 2, margin)
 		for line in lines:
-			w_px, _ = draw.textsize(line, font=font)
+			w_px, _ = self._measure(draw, line, font)
 			x = (self.width - w_px) // 2
 			draw.text((x, y), line, fill=(255, 255, 255), font=font)
 			y += line_height
