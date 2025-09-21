@@ -125,37 +125,12 @@ jobs:
             echo "Skipping Ollama install (provider in use)."
           fi
 
-      - name: Choose prompt
-        if: ${{ steps.decide.outputs.should_post == 'true' }}
-        id: choose
-        shell: bash
-        run: |
-          PROMPT=$(python - <<'PY'
-          import random, datetime
-          now = datetime.datetime.utcnow()
-          seed = int(now.strftime("%Y%m%d%H"))
-          random.seed(seed)
-          prompts = [
-            "Write a raw, red‑pill style tweet for men about masculinity, purpose, goals, growth, discipline. Be blunt, confident, no fluff. No hate speech or slurs. Be direct , blunt and harsh. Under 150 chars.",
-            "Give a harsh truth for men on discipline and delayed gratification. Raw, direct; profanity allowed but no slurs. Be direct , blunt and harsh. Under 150 chars.",
-            "Drop unfiltered advice to men on dating dynamics: respect, standards, leading yourself first. Blunt, may use profanity; never demeaning groups. Be direct , blunt and harsh. Under 150 chars.",
-            "Short punch to the gut about purpose over comfort. Raw, no fluff; profanity allowed (no hate). Be direct , blunt and harsh. Under 150 chars.",
-            "Masculinity reminder: responsibility, courage, restraint. Make it gritty; profanity ok, no slurs. Be direct , blunt and harsh. Under 150 chars.",
-          ]
-          print(random.choice(prompts))
-          PY
-          )
-          echo "prompt<<EOF" >> $GITHUB_OUTPUT
-          echo "$PROMPT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Post
+      - name: Post Stoic
         if: ${{ steps.decide.outputs.should_post == 'true' }}
         timeout-minutes: 6
         run: |
-          echo "PROMPT: ${{ steps.choose.outputs.prompt }}"
           ENGINE_TO_USE=${ENGINE:-provider}
-          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed"
+          python -m bot post-stoic --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (stoic fetch or twitter error)"
 
       - name: Skipped (not a posting hour)
         if: ${{ steps.decide.outputs.should_post != 'true' }}

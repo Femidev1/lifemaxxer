@@ -114,4 +114,5 @@ jobs:
       - name: Post Stoic immediately
         if: ${{ github.event.inputs.use_stoic == 'true' }}
         run: |
-          python -m bot post-stoic --no-dry-run || echo "post failed (stoic fetch or twitter error)"
+          ENGINE_TO_USE=${ENGINE:-provider}
+          python -m bot post-stoic --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (stoic fetch or twitter error)"

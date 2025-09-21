@@ -28,6 +28,14 @@ def _truncate_to_limit(text: str, limit: int) -> str:
     return text[:limit]
 
 
+def _sanitize_no_emdash(text: str) -> str:
+    # Replace em dash and en dash with a simple hyphen or space
+    sanitized = text.replace("—", "-").replace("–", "-")
+    # Avoid fancy quotes; normalize basic quotes
+    sanitized = sanitized.replace("“", '"').replace("”", '"').replace("’", "'")
+    return sanitized
+
+
 @app.command()
 def generate(
 	prompt: str = typer.Argument(..., help="Prompt for content generation"),
@@ -122,21 +130,34 @@ def post_stoic(
         "--dry-run/--no-dry-run",
         help="If set, overrides config default to skip posting or force posting.",
     ),
+    engine: str = typer.Option("auto", help="Choose generation engine for rephrasing", case_sensitive=False),
+    rephrase: bool = typer.Option(True, "--rephrase/--no-rephrase", help="Use AI to paraphrase/reword the quote"),
 ):
-    """Fetch a Stoic quote from a free API and post it."""
-    config, _, twitter = _load_components()
+    """Fetch a Stoic quote, optionally rephrase into bot style, and post it."""
+    if engine.lower() not in ENGINE_CHOICES:
+        raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
+    config, generator, twitter = _load_components()
     use_dry_run = config.dry_run_default if dry_run is None else dry_run
     stoic = StoicClient()
     result = stoic.fetch_quote()
     if not result:
         print("[error] Failed to fetch stoic quote.")
         return
-    text, author = result
-    if author:
-        candidate = f"\"{text}\" — {author}"
+    text, _author = result
+    # Always ignore attribution per requirements
+    text = _sanitize_no_emdash(text)
+    if rephrase:
+        # Ask the generator to paraphrase into one short blunt tweet with constraints
+        prompt = (
+            "Paraphrase the following Stoic idea into ONE short tweet. "
+            "No hashtags, no emojis, no quotes or attribution, no em dashes. "
+            "Tone: raw, direct, confident, no fluff. Under 200 characters.\n\n"
+            f"Idea: {text}"
+        )
+        candidate = generator.generate(prompt, preferred_engine=engine)
     else:
         candidate = text
-    tweet = _truncate_to_limit(candidate, config.max_length)
+    tweet = _truncate_to_limit(_sanitize_no_emdash(candidate).strip(), config.max_length)
     print(tweet)
     if use_dry_run:
         print("[dry-run] Skipping post.")
