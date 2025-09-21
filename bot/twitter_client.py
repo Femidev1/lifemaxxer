@@ -22,7 +22,7 @@ class TwitterClient:
 			access_token=self.config.twitter_access_token,
 			access_token_secret=self.config.twitter_access_token_secret,
 			bearer_token=self.config.twitter_bearer_token,
-			wait_on_rate_limit=True,
+			wait_on_rate_limit=self.config.twitter_wait_on_rate_limit,
 		)
 		return self._client
 
@@ -34,7 +34,14 @@ class TwitterClient:
 		if dry_run:
 			return None
 		client = self._build_client()
-		resp = client.create_tweet(text=text)
+		try:
+			resp = client.create_tweet(text=text)
+		except tweepy.TooManyRequests as e:
+			print("[rate-limit] Skipping this post due to Twitter rate limit.")
+			return None
+		except Exception as e:
+			print(f"[twitter-error] {type(e).__name__}: {e}")
+			return None
 		# resp.data example: { 'id': '...', 'text': '...' }
 		if hasattr(resp, "data") and isinstance(resp.data, dict):
 			return resp.data.get("id")

@@ -27,6 +27,7 @@ class AppConfig(BaseModel):
 
 	# Behavior
 	dry_run_default: bool = True
+	twitter_wait_on_rate_limit: bool = False
 
 	@classmethod
 	def load(cls) -> "AppConfig":
@@ -46,4 +47,5 @@ class AppConfig(BaseModel):
 			hf_model=os.getenv("HF_MODEL"),
 			max_length=int(os.getenv("MAX_LENGTH", "220")),
 			dry_run_default=os.getenv("DRY_RUN_DEFAULT", "true").lower() == "true",
+			twitter_wait_on_rate_limit=os.getenv("TWITTER_WAIT_ON_RATE_LIMIT", "false").lower() == "true",
 		)
