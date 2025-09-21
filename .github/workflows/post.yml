@@ -69,11 +69,17 @@ jobs:
       - name: Install and start Ollama if needed
         run: |
           if [ "${ENGINE}" = "ollama" ]; then
-            curl -fsSL https://ollama.com/install.sh | sh
+            if ! command -v ollama >/dev/null 2>&1; then
+              curl -fsSL https://ollama.com/install.sh | sh
+            fi
             nohup ollama serve >/tmp/ollama.log 2>&1 &
             sleep 2
             MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
-            ollama pull "$MODEL"
+            if ollama list | awk '{print $1}' | grep -qx "$MODEL"; then
+              echo "Ollama model '$MODEL' already present; skipping pull."
+            else
+              ollama pull "$MODEL"
+            fi
             curl -sSf http://127.0.0.1:11434/api/tags >/dev/null
           else
             echo "Skipping Ollama install (provider in use)."
