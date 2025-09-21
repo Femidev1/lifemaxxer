@@ -21,7 +21,7 @@ class AppConfig(BaseModel):
 	provider_model: Optional[str] = None  # e.g., ollama/llama3.1:8b-instruct via LiteLLM
 
 	# Content generation
-	ollama_model: str = "llama3.1:8b-instruct"
+	ollama_model: str = "qwen2.5:3b-instruct"
 	hf_model: Optional[str] = None
 	max_length: int = 220
 
@@ -42,7 +42,7 @@ class AppConfig(BaseModel):
 			provider_api_key=os.getenv("PROVIDER_API_KEY"),
 			provider_base_url=os.getenv("PROVIDER_BASE_URL"),
 			provider_model=os.getenv("PROVIDER_MODEL"),
-			ollama_model=os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct"),
+			ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct"),
 			hf_model=os.getenv("HF_MODEL"),
 			max_length=int(os.getenv("MAX_LENGTH", "220")),
 			dry_run_default=os.getenv("DRY_RUN_DEFAULT", "true").lower() == "true",

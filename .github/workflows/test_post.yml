@@ -15,7 +15,7 @@ jobs:
       PROVIDER_BASE_URL: ${{ secrets.PROVIDER_BASE_URL }}
       PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
       PROVIDER_MODEL: ${{ secrets.PROVIDER_MODEL }}
-      OLLAMA_MODEL: gemma3:1b
+      OLLAMA_MODEL: qwen2.5:3b-instruct
       MAX_LENGTH: 220
       DRY_RUN_DEFAULT: 'false'
     steps:
@@ -46,7 +46,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ollama
-          key: ollama-models-${{ runner.os }}-gemma3-1b-v1
+          key: ollama-models-${{ runner.os }}-qwen2.5-3b-instruct-v1
           restore-keys: |
             ollama-models-${{ runner.os }}-
 
@@ -57,7 +57,7 @@ jobs:
             nohup ollama serve >/tmp/ollama.log 2>&1 &
             # give the server a moment
             sleep 2
-            MODEL=${OLLAMA_MODEL:-gemma3:1b}
+            MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
             ollama pull "$MODEL"
             curl -sSf http://127.0.0.1:11434/api/tags >/dev/null
           else
@@ -74,11 +74,13 @@ jobs:
           seed = int(now.strftime("%Y%m%d%H%M%S"))
           random.seed(seed)
           prompts = [
-            "Drop a random motivational quote, feel free to look up one on the internet or make some shit up. Also be direct a use some vulgar language",
-            "Share a direct, no-fluff motivational line about self-discipline, healthy masculinity, and respectful ways to treat women, point out the fact men should keep their options open and be very careful when picking partners. Keep it empowering, never demeaning, no slurs or hate; under 240 chars.",
-            "Give a blunt tip on purpose, discipline, or delayed gratification. One line, under 240 chars.",
-            "Write a short, gritty reminder about building masculine character: stoicism, responsibility, leading yourself first; always respectful to women. Under 240 chars.",
-            "Punchy tweet on habits: consistency over intensity; choose one action today. Under 240 chars."
+            "Write a raw, red‑pill style tweet for men about masculinity, purpose, goals, growth, discipline. Be blunt, confident, no fluff. No hate speech or slurs. Under 150 chars.",
+            "Give a harsh truth for men on discipline and delayed gratification. Raw, direct; profanity allowed but no slurs. Under 150 chars.",
+            "Drop unfiltered advice to men on dating dynamics: respect, standards, leading yourself first. Blunt, may use profanity; never demeaning groups. Under 150 chars.",
+            "Short punch to the gut about purpose over comfort. Raw, no fluff; profanity allowed (no hate). Under 150 chars.",
+            "Masculinity reminder: responsibility, courage, restraint. Make it gritty; profanity ok, no slurs. Under 150 chars.",
+            "Give advice on women it should vary along the lines of never chase women, atrract them only, remain indifferent to their moods, keep your options open, always be ready to walk away, accept rejection as part of life, etc. Under 150 chars.",
+            "Give direct plain blunt advice on the importance of working out and semmen retention. Under 150 chars.",
           ]
           print(random.choice(prompts))
           PY
