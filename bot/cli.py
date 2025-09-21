@@ -146,6 +146,7 @@ def post_stoic(
     text, _author = result
     # Always ignore attribution per requirements
     text = _sanitize_no_emdash(text)
+    candidate = text
     if rephrase:
         # Ask the generator to paraphrase into one short blunt tweet with constraints
         prompt = (
@@ -154,9 +155,8 @@ def post_stoic(
             "Tone: raw, direct, confident, no fluff. Under 200 characters.\n\n"
             f"Idea: {text}"
         )
-        candidate = generator.generate(prompt, preferred_engine=engine)
-    else:
-        candidate = text
+        ai_text = generator.generate(prompt, preferred_engine=engine)
+        candidate = ai_text.strip() or text
     tweet = _truncate_to_limit(_sanitize_no_emdash(candidate).strip(), config.max_length)
     print(tweet)
     if use_dry_run:
