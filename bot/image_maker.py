@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 
 class ImageMaker:
-	"""Compose a quote over a random free background (Picsum)."""
+	"""Compose a quote over a provided background or free fallback (Picsum)."""
 
 	def __init__(self, width: int = 1080, height: int = 1350):
 		self.width = width
@@ -39,9 +39,9 @@ class ImageMaker:
 			lines.append(" ".join(current))
 		return "\n".join(lines)
 
-	def compose_quote(self, text: str) -> bytes:
-		# Fetch and soften background
-		img = self._fetch_background()
+	def compose_quote(self, text: str, background: Image.Image | None = None) -> bytes:
+		# Use provided background if any; otherwise fetch a random one
+		img = background if background is not None else self._fetch_background()
 		img = img.filter(ImageFilter.GaussianBlur(radius=2))
 
 		draw = ImageDraw.Draw(img)

@@ -10,6 +10,7 @@ from .generator import ContentGenerator
 from .twitter_client import TwitterClient
 from .stoic_client import StoicClient
 from .image_maker import ImageMaker
+from .ai_image_client import AIImageClient
 
 app = typer.Typer(help="AI-powered Twitter bot CLI")
 
@@ -179,6 +180,7 @@ def post_stoic_image(
     ),
     engine: str = typer.Option("auto", help="Choose generation engine for rephrasing", case_sensitive=False),
     rephrase: bool = typer.Option(True, "--rephrase/--no-rephrase", help="Use AI to paraphrase/reword the quote"),
+    ai_image: bool = typer.Option(True, "--ai-image/--no-ai-image", help="Generate background with AI Horde when possible"),
 ):
     """Fetch a Stoic quote, rephrase, render to image, and post as an image tweet."""
     if engine.lower() not in ENGINE_CHOICES:
@@ -206,11 +208,32 @@ def post_stoic_image(
     print(tweet)
     # Generate image from the tweet text
     maker = ImageMaker()
-    try:
-        image_bytes = maker.compose_quote(tweet)
-    except Exception as e:
-        print(f"[image-error] {type(e).__name__}: {e}")
-        image_bytes = b""
+    image_bytes = b""
+    # Try AI Horde generation for a custom background
+    if ai_image:
+        try:
+            ai = AIImageClient(config)
+            # Build a simple visual prompt from the tweet text
+            vis_prompt = (
+                "Stoic, minimalist poster art, high contrast, clean typography space, "
+                "monochrome background, subtle texture, no people, no text"
+            )
+            bg_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=20)
+            if bg_bytes:
+                from PIL import Image
+                import io
+                bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((1080, 1080))
+                image_bytes = maker.compose_quote(tweet, background=bg_img)
+        except Exception as e:
+            print(f"[ai-image-error] {type(e).__name__}: {e}")
+            image_bytes = b""
+    # Fallback to free background if AI image not available
+    if not image_bytes:
+        try:
+            image_bytes = maker.compose_quote(tweet)
+        except Exception as e:
+            print(f"[image-error] {type(e).__name__}: {e}")
+            image_bytes = b""
     if use_dry_run:
         print("[dry-run] Skipping post.")
         return
