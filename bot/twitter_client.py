@@ -58,7 +58,7 @@ class TwitterClient:
 				print("[twitter-error] Failed to obtain media_id from upload response")
 				return None
 			# Create tweet with media
-			resp = client.create_tweet(text=text, media={"media_ids": [str(media_id)]})
+			resp = client.create_tweet(text=text, media_ids=[str(media_id)])
 			if hasattr(resp, "data") and isinstance(resp.data, dict):
 				return resp.data.get("id")
 			return None
