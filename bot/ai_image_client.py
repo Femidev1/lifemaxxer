@@ -40,7 +40,7 @@ class AIImageClient:
 				"steps": int(steps),
 				"n": 1,
 			},
-			"prompt": prompt,
+			"prompt": self._build_prompt(prompt),
 			"nsfw": False,
 			"censor_nsfw": True,
 			"r2": True,
@@ -49,6 +49,17 @@ class AIImageClient:
 		r.raise_for_status()
 		data = r.json()
 		return data.get("id") if isinstance(data, dict) else None
+
+	def _build_prompt(self, core: str) -> str:
+		# Attach model hints and negative prompts for quality
+		neg = self.config.horde_negative_prompt or (
+			"text, watermark, signature, blurry, lowres, jpeg artifacts, deformed, extra limbs, bad anatomy"
+		)
+		model = self.config.horde_model or "SDXL 1.0"
+		return (
+			f"{core}. Minimalist stoic poster, professional graphic design, SDXL quality, clean composition."
+			f" Negative prompt: {neg}. Model hint: {model}."
+		)
 
 	def _await_and_fetch(self, job_id: str) -> Optional[bytes]:
 		check_url = f"{self.base_url}/v2/generate/status/{job_id}"

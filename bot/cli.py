@@ -215,10 +215,10 @@ def post_stoic_image(
             ai = AIImageClient(config)
             # Build a simple visual prompt from the tweet text
             vis_prompt = (
-                "Stoic, minimalist poster art, high contrast, clean typography space, "
-                "monochrome background, subtle texture, no people, no text"
+                "Stoic minimalist poster, high contrast, cinematic lighting, textured paper background, "
+                "clean empty space for typography, no people, no text, professional design"
             )
-            bg_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=20)
+            bg_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=22)
             if bg_bytes:
                 from PIL import Image
                 import io

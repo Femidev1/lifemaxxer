@@ -32,6 +32,8 @@ class AppConfig(BaseModel):
 	# Image generation (Stable Horde)
 	horde_api_key: Optional[str] = None
 	horde_base_url: Optional[str] = None  # default applied in client if None
+	horde_model: Optional[str] = None  # e.g., SDXL 1.0, Deliberate, Realistic Vision
+	horde_negative_prompt: Optional[str] = None
 
 	@classmethod
 	def load(cls) -> "AppConfig":
@@ -54,4 +56,6 @@ class AppConfig(BaseModel):
 			twitter_wait_on_rate_limit=os.getenv("TWITTER_WAIT_ON_RATE_LIMIT", "false").lower() == "true",
 			horde_api_key=os.getenv("HORDE_API_KEY"),
 			horde_base_url=os.getenv("HORDE_BASE_URL"),
+			horde_model=os.getenv("HORDE_MODEL"),
+			horde_negative_prompt=os.getenv("HORDE_NEGATIVE_PROMPT"),
 		)
