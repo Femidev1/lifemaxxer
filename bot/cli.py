@@ -8,6 +8,7 @@ import typer
 from .config import AppConfig
 from .generator import ContentGenerator
 from .twitter_client import TwitterClient
+from .stoic_client import StoicClient
 
 app = typer.Typer(help="AI-powered Twitter bot CLI")
 
@@ -20,6 +21,11 @@ def _load_components() -> tuple[AppConfig, ContentGenerator, TwitterClient]:
 	generator = ContentGenerator(config)
 	twitter = TwitterClient(config)
 	return config, generator, twitter
+
+
+def _truncate_to_limit(text: str, limit: int) -> str:
+    limit = min(max(limit, 1), 275)
+    return text[:limit]
 
 
 @app.command()
@@ -107,6 +113,39 @@ def health():
 	# bearer is optional for posting with user context, but useful for reads
 	status = "ok" if not missing else f"missing: {', '.join(missing)}"
 	print(f"config: {status}")
+
+
+@app.command("post-stoic")
+def post_stoic(
+    dry_run: Optional[bool] = typer.Option(
+        None,
+        "--dry-run/--no-dry-run",
+        help="If set, overrides config default to skip posting or force posting.",
+    ),
+):
+    """Fetch a Stoic quote from a free API and post it."""
+    config, _, twitter = _load_components()
+    use_dry_run = config.dry_run_default if dry_run is None else dry_run
+    stoic = StoicClient()
+    result = stoic.fetch_quote()
+    if not result:
+        print("[error] Failed to fetch stoic quote.")
+        return
+    text, author = result
+    if author:
+        candidate = f"\"{text}\" — {author}"
+    else:
+        candidate = text
+    tweet = _truncate_to_limit(candidate, config.max_length)
+    print(tweet)
+    if use_dry_run:
+        print("[dry-run] Skipping post.")
+        return
+    tweet_id = twitter.post_tweet(tweet)
+    if tweet_id:
+        print(f"Posted tweet id: {tweet_id}")
+    else:
+        print("[skip] No post (rate-limited or error).")
 
 
 def run():
