@@ -65,7 +65,7 @@ def post(
 	if tweet_id:
 		print(f"Posted tweet id: {tweet_id}")
 	else:
-		print("Posted (id unknown)")
+		print("[skip] No post (rate-limited or error).")
 
 
 @app.command("post-text")
@@ -88,7 +88,7 @@ def post_text(
 	if tweet_id:
 		print(f"Posted tweet id: {tweet_id}")
 	else:
-		print("Posted (id unknown)")
+		print("[skip] No post (rate-limited or error).")
 
 
 @app.command()
