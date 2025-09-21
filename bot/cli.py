@@ -9,6 +9,7 @@ from .config import AppConfig
 from .generator import ContentGenerator
 from .twitter_client import TwitterClient
 from .stoic_client import StoicClient
+from .image_maker import ImageMaker
 
 app = typer.Typer(help="AI-powered Twitter bot CLI")
 
@@ -168,6 +169,59 @@ def post_stoic(
     else:
         print("[skip] No post (rate-limited or error).")
 
+
+@app.command("post-stoic-image")
+def post_stoic_image(
+    dry_run: Optional[bool] = typer.Option(
+        None,
+        "--dry-run/--no-dry-run",
+        help="If set, overrides config default to skip posting or force posting.",
+    ),
+    engine: str = typer.Option("auto", help="Choose generation engine for rephrasing", case_sensitive=False),
+    rephrase: bool = typer.Option(True, "--rephrase/--no-rephrase", help="Use AI to paraphrase/reword the quote"),
+):
+    """Fetch a Stoic quote, rephrase, render to image, and post as an image tweet."""
+    if engine.lower() not in ENGINE_CHOICES:
+        raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
+    config, generator, twitter = _load_components()
+    use_dry_run = config.dry_run_default if dry_run is None else dry_run
+    stoic = StoicClient()
+    result = stoic.fetch_quote()
+    if not result:
+        print("[error] Failed to fetch stoic quote.")
+        return
+    text, _author = result
+    text = _sanitize_no_emdash(text)
+    candidate = text
+    if rephrase:
+        prompt = (
+            "Paraphrase the following Stoic idea into ONE short tweet. "
+            "No hashtags, no emojis, no quotes or attribution, no em dashes. "
+            "Tone: raw, direct, confident, no fluff. Under 200 characters.\n\n"
+            f"Idea: {text}"
+        )
+        ai_text = generator.generate(prompt, preferred_engine=engine)
+        candidate = ai_text.strip() or text
+    tweet = _truncate_to_limit(_sanitize_no_emdash(candidate).strip(), config.max_length)
+    print(tweet)
+    # Generate image from the tweet text
+    maker = ImageMaker()
+    try:
+        image_bytes = maker.compose_quote(tweet)
+    except Exception as e:
+        print(f"[image-error] {type(e).__name__}: {e}")
+        image_bytes = b""
+    if use_dry_run:
+        print("[dry-run] Skipping post.")
+        return
+    if image_bytes:
+        tweet_id = twitter.upload_media_and_post(tweet, image_bytes=image_bytes, filename="stoic.jpg")
+    else:
+        tweet_id = twitter.post_tweet(tweet)
+    if tweet_id:
+        print(f"Posted tweet id: {tweet_id}")
+    else:
+        print("[skip] No post (rate-limited or error).")
 
 def run():
 	app()

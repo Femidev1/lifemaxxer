@@ -4,6 +4,7 @@ pydantic>=2.8.2,<3
 Typer>=0.12.3,<1
 requests>=2.32.3,<3
 openai>=1.51.0,<2
+Pillow>=10.4.0,<11
 
 # Optional generators (install if needed)
 ollama>=0.3.3,<1

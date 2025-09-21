@@ -4,6 +4,7 @@ from typing import Optional
 import time
 
 import tweepy
+import requests
 
 from .config import AppConfig
 
@@ -26,6 +27,47 @@ class TwitterClient:
 			wait_on_rate_limit=self.config.twitter_wait_on_rate_limit,
 		)
 		return self._client
+
+	def upload_media_and_post(self, text: str, image_bytes: bytes, filename: str = "image.jpg", dry_run: bool = False) -> Optional[str]:
+		# Safety checks
+		if text is None or not str(text).strip():
+			print("[error] Empty tweet text; skipping post.")
+			return None
+		if image_bytes is None or len(image_bytes) == 0:
+			print("[error] Empty image content; skipping post.")
+			return None
+		if dry_run:
+			return None
+		client = self._build_client()
+		# Tweepy v2 Client supports media upload via media_category and media_ids through upload endpoint
+		# However, Tweepy exposes media upload on v1.1 API via API v1.1 wrapper
+		try:
+			# Build v1.1 API for media upload
+			auth = tweepy.OAuth1UserHandler(
+				self.config.twitter_api_key,
+				self.config.twitter_api_key_secret,
+				self.config.twitter_access_token,
+				self.config.twitter_access_token_secret,
+			)
+			api_v1 = tweepy.API(auth, wait_on_rate_limit=self.config.twitter_wait_on_rate_limit)
+			# Upload media
+			import io
+			media = api_v1.media_upload(filename=filename, file=io.BytesIO(image_bytes))
+			media_id = getattr(media, "media_id_string", None) or getattr(media, "media_id", None)
+			if not media_id:
+				print("[twitter-error] Failed to obtain media_id from upload response")
+				return None
+			# Create tweet with media
+			resp = client.create_tweet(text=text, media={"media_ids": [str(media_id)]})
+			if hasattr(resp, "data") and isinstance(resp.data, dict):
+				return resp.data.get("id")
+			return None
+		except tweepy.TooManyRequests as e:
+			print("[rate-limit] Skipping this post due to Twitter rate limit (media).")
+			return None
+		except Exception as e:
+			print(f"[twitter-error] {type(e).__name__}: {e}")
+			return None
 
 	def _compute_retry_delay_seconds(self, exc: Exception, attempt_index: int) -> int:
 		# If Tweepy exposes response headers, try to honor reset
