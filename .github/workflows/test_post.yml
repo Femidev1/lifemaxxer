@@ -29,14 +29,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Fail fast if provider not configured
+      - name: Configure LiteLLM/Ollama provider
         run: |
           if [ -z "${PROVIDER_API_KEY}" ] || [ -z "${PROVIDER_BASE_URL}" ] || [ -z "${PROVIDER_MODEL}" ]; then
-            echo "Provider not configured (PROVIDER_* secrets missing)."
+            echo "Provider not configured (set PROVIDER_BASE_URL, PROVIDER_API_KEY, PROVIDER_MODEL)."
+            echo "Expected: PROVIDER_BASE_URL=https://<your-cloudflared-url>/v1, PROVIDER_API_KEY=<local-secret>, PROVIDER_MODEL=ollama/llama3.1:8b-instruct"
             exit 1
           fi
-          echo "OPENROUTER_REFERER=https://github.com/${{ github.repository }}" >> $GITHUB_ENV
-          echo "OPENROUTER_TITLE=Lifemaxxer Bot" >> $GITHUB_ENV
+          # Default model if not provided
+          if [ -z "${PROVIDER_MODEL}" ]; then
+            echo "PROVIDER_MODEL=ollama/llama3.1:8b-instruct" >> $GITHUB_ENV
+          fi
+          # Quick connectivity check
+          curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null || {
+            echo "Failed to reach provider at ${PROVIDER_BASE_URL}; ensure cloudflared tunnel is running to your LiteLLM server"; exit 1; }
 
       - name: Choose prompt
         id: choose
@@ -49,7 +55,7 @@ jobs:
           random.seed(seed)
           prompts = [
             "Drop a random motivational quote, feel free to look up one on the internet or make some shit up. Also be direct a use some vulgar language",
-            "Share a direct, no-fluff motivational line about self-discipline, healthy masculinity, and respectful ways to treat women. Keep it empowering, never demeaning, no slurs or hate; under 240 chars.",
+            "Share a direct, no-fluff motivational line about self-discipline, healthy masculinity, and respectful ways to treat women, point out the fact men should keep their options open and be very careful when picking partners. Keep it empowering, never demeaning, no slurs or hate; under 240 chars.",
             "Give a blunt tip on purpose, discipline, or delayed gratification. One line, under 240 chars.",
             "Write a short, gritty reminder about building masculine character: stoicism, responsibility, leading yourself first; always respectful to women. Under 240 chars.",
             "Punchy tweet on habits: consistency over intensity; choose one action today. Under 240 chars."
