@@ -125,12 +125,12 @@ jobs:
             echo "Skipping Ollama install (provider in use)."
           fi
 
-      - name: Post Stoic (image)
+      - name: Post Auto (image)
         if: ${{ steps.decide.outputs.should_post == 'true' }}
         timeout-minutes: 6
         run: |
           ENGINE_TO_USE=${ENGINE:-provider}
-          python -m bot post-stoic-image --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (stoic fetch/image or twitter error)"
+          python -m bot post-auto-image --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (auto source/image or twitter error)"
 
       - name: Skipped (not a posting hour)
         if: ${{ steps.decide.outputs.should_post != 'true' }}

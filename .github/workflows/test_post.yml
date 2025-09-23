@@ -108,8 +108,8 @@ jobs:
           ENGINE_TO_USE=${ENGINE:-provider}
           python -m bot post "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (empty generation or provider error)"
 
-      - name: Post Stoic immediately
+      - name: Post Auto Image now
         if: ${{ github.event.inputs.use_stoic == 'true' }}
         run: |
           ENGINE_TO_USE=${ENGINE:-provider}
-          python -m bot post-stoic-image --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (stoic fetch/image or twitter error)"
+          python -m bot post-auto-image --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (auto source/image or twitter error)"

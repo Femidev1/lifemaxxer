@@ -11,6 +11,8 @@ from .twitter_client import TwitterClient
 from .stoic_client import StoicClient
 from .image_maker import ImageMaker
 from .ai_image_client import AIImageClient
+from .sources import fetch_quote_rotating
+from .image_prompt import build_sdxl_prompt
 
 app = typer.Typer(help="AI-powered Twitter bot CLI")
 
@@ -246,6 +248,71 @@ def post_stoic_image(
         return
     if image_bytes:
         tweet_id = twitter.upload_media_and_post(tweet, image_bytes=image_bytes, filename="stoic.jpg")
+    else:
+        tweet_id = twitter.post_tweet(tweet)
+    if tweet_id:
+        print(f"Posted tweet id: {tweet_id}")
+    else:
+        print("[skip] No post (rate-limited or error).")
+
+
+@app.command("post-auto-image")
+def post_auto_image(
+    dry_run: Optional[bool] = typer.Option(
+        None,
+        "--dry-run/--no-dry-run",
+        help="If set, overrides config default to skip posting or force posting.",
+    ),
+    engine: str = typer.Option("auto", help="Choose generation engine for rewriting/prompts", case_sensitive=False),
+):
+    """Fetch source material, rewrite to a short tweet, generate SDXL image, and post."""
+    if engine.lower() not in ENGINE_CHOICES:
+        raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
+    config, generator, twitter = _load_components()
+    use_dry_run = config.dry_run_default if dry_run is None else dry_run
+
+    # 1) Fetch source
+    raw = fetch_quote_rotating()
+    if not raw:
+        print("[error] No source quote found.")
+        return
+
+    # 2) Rewrite short tweet
+    rewrite_prompt = (
+        "Rewrite into ONE short tweet under 140 chars. "
+        "No emojis, no hashtags, no quotes, no attribution, no AI phrasing. "
+        "Tone: raw, direct, confident. Themes: masculinity, stoicism, discipline, purpose, self-control.\n\n"
+        f"Source: {raw}"
+    )
+    candidate = generator.generate(rewrite_prompt, preferred_engine=engine)
+    tweet = _truncate_to_limit(_sanitize_no_emdash((candidate or "").strip()), config.max_length)
+    if not tweet:
+        print("[error] Empty rewrite.")
+        return
+
+    # 3) Build SDXL prompt via LLM
+    vis_prompt = build_sdxl_prompt(generator, tweet, engine)
+    if not vis_prompt:
+        vis_prompt = "dark moody minimalist stoic poster, greek marble statue, dramatic shadows, no text"
+
+    # 4) Generate image (Stable Horde SDXL)
+    ai = AIImageClient(config)
+    neg = config.horde_negative_prompt or "text, watermark, signature, logo, blurry, lowres, artifacts, deformed, extra fingers, bad anatomy"
+    models = [config.horde_model] if config.horde_model else ["SDXL 1.0"]
+    img_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=28, negative_prompt=neg, models=models)
+
+    # 5) Fallback to local composition if needed
+    if not img_bytes:
+        maker = ImageMaker()
+        img_bytes = maker.compose_quote(tweet)
+
+    print(tweet)
+    if use_dry_run:
+        print("[dry-run] Skipping post.")
+        return
+
+    if img_bytes:
+        tweet_id = twitter.upload_media_and_post(tweet, image_bytes=img_bytes, filename="auto.jpg")
     else:
         tweet_id = twitter.post_tweet(tweet)
     if tweet_id:
