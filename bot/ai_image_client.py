@@ -51,7 +51,7 @@ class AIImageClient:
 		headers = {"apikey": self.api_key, "accept": "application/json", "content-type": "application/json"}
 		body: Dict[str, Any] = {
 			"params": {
-				"sampler_name": "k_euler_a",
+				"sampler_name": "DPM++ 2M Karras",
 				"width": int(width),
 				"height": int(height),
 				"steps": int(steps),
@@ -60,6 +60,7 @@ class AIImageClient:
 				"karras": True,
 				"clip_skip": 1,
 				"post_processing": [],
+				"seed": int(time.time() * 1000) % 2_147_483_647,
 			},
 			"prompt": self._build_prompt(prompt),
 			"nsfw": False,

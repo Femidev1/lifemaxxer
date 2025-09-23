@@ -5,7 +5,7 @@ from typing import Tuple
 import io
 import random
 import requests
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 
 
 class ImageMaker:
@@ -81,6 +81,47 @@ class ImageMaker:
 		# Export JPEG
 		buf = io.BytesIO()
 		img.save(buf, format="JPEG", quality=92, optimize=True)
+		return buf.getvalue()
+
+	def upscale_bytes(self, image_bytes: bytes, max_side: int = 1400, sharpen: bool = True) -> bytes:
+		try:
+			im = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+			w, h = im.size
+			scale = min(max_side / max(w, h), 1.5)
+			if scale > 1.0:
+				im = im.resize((int(w * scale), int(h * scale)), resample=Image.LANCZOS)
+			if sharpen:
+				im = im.filter(ImageFilter.UnsharpMask(radius=1.2, percent=120, threshold=3))
+			buf = io.BytesIO()
+			im.save(buf, format="JPEG", quality=92, optimize=True)
+			return buf.getvalue()
+		except Exception:
+			return image_bytes
+
+	def compose_duotone_text(self, text: str) -> bytes:
+		# Simple duotone/gradient background + centered text fallback
+		bg = Image.new("RGB", (self.width, self.height), (12, 12, 16))
+		draw = ImageDraw.Draw(bg)
+		for y in range(self.height):
+			alpha = y / self.height
+			line = Image.new("RGB", (self.width, 1), (int(12 + 80 * alpha), int(12 + 60 * alpha), int(16 + 50 * alpha)))
+			bg.paste(line, (0, y))
+		try:
+			font = ImageFont.truetype("DejaVuSans.ttf", size=64)
+		except Exception:
+			font = ImageFont.load_default()
+		wrapped = self._wrap_text(draw, text, font, self.width - 160)
+		lines = wrapped.splitlines()
+		line_h = self._measure(draw, "Ag", font)[1] + 10
+		total_h = line_h * len(lines)
+		y = (self.height - total_h) // 2
+		for line in lines:
+			w_px, _ = self._measure(draw, line, font)
+			x = (self.width - w_px) // 2
+			draw.text((x, y), line, fill=(240, 240, 240), font=font)
+			y += line_h
+		buf = io.BytesIO()
+		bg.save(buf, format="JPEG", quality=92, optimize=True)
 		return buf.getvalue()
 
 

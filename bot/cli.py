@@ -299,12 +299,14 @@ def post_auto_image(
     ai = AIImageClient(config)
     neg = config.horde_negative_prompt or "text, watermark, signature, logo, blurry, lowres, artifacts, deformed, extra fingers, bad anatomy"
     models = [config.horde_model] if config.horde_model else ["SDXL 1.0"]
-    img_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=28, negative_prompt=neg, models=models)
+    img_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=32, negative_prompt=neg, models=models)
 
     # 5) Fallback to local composition if needed
+    maker = ImageMaker()
     if not img_bytes:
-        maker = ImageMaker()
-        img_bytes = maker.compose_quote(tweet)
+        img_bytes = maker.compose_duotone_text(tweet)
+    # Light upscale/sharpen
+    img_bytes = maker.upscale_bytes(img_bytes, max_side=1400, sharpen=True)
 
     print(tweet)
     if use_dry_run:
