@@ -35,6 +35,11 @@ class AppConfig(BaseModel):
 	horde_model: Optional[str] = None  # e.g., SDXL 1.0, Deliberate, Realistic Vision
 	horde_negative_prompt: Optional[str] = None
 
+	# ComfyUI (self-hosted Stable Diffusion)
+	comfy_base_url: Optional[str] = None  # e.g., http://127.0.0.1:8188
+	comfy_checkpoint: Optional[str] = None  # e.g., sdxl_checkpoint.safetensors
+	comfy_timeout_s: int = 60
+
 	@classmethod
 	def load(cls) -> "AppConfig":
 		# Load .env if present
@@ -58,4 +63,7 @@ class AppConfig(BaseModel):
 			horde_base_url=os.getenv("HORDE_BASE_URL"),
 			horde_model=os.getenv("HORDE_MODEL"),
 			horde_negative_prompt=os.getenv("HORDE_NEGATIVE_PROMPT"),
+			comfy_base_url=os.getenv("COMFY_BASE_URL"),
+			comfy_checkpoint=os.getenv("COMFY_CHECKPOINT"),
+			comfy_timeout_s=int(os.getenv("COMFY_TIMEOUT_S", "60")),
 		)
