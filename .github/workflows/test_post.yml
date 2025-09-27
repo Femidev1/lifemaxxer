@@ -51,6 +51,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Configure engine (provider or local Ollama)
+        if: ${{ github.event.inputs.use_stoic != 'true' }}
         run: |
           if [ -n "${PROVIDER_API_KEY}" ] && [ -n "${PROVIDER_BASE_URL}" ] && [ -n "${PROVIDER_MODEL}" ]; then
             if curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null; then
@@ -65,6 +66,7 @@ jobs:
           fi
 
       - name: Cache Ollama models
+        if: ${{ github.event.inputs.use_stoic != 'true' }}
         uses: actions/cache@v4
         with:
           path: ~/.ollama
@@ -73,6 +75,7 @@ jobs:
             ollama-models-${{ runner.os }}-
 
       - name: Install and start Ollama if needed
+        if: ${{ github.event.inputs.use_stoic != 'true' }}
         run: |
           if [ "${ENGINE}" = "ollama" ]; then
             if ! command -v ollama >/dev/null 2>&1; then
@@ -147,5 +150,4 @@ jobs:
       - name: Post CSV Quote Image now
         if: ${{ github.event.inputs.use_stoic == 'true' }}
         run: |
-          ENGINE_TO_USE=${ENGINE:-provider}
           python -m bot post-quote-image --no-dry-run || echo "post failed (csv/image or twitter error)"

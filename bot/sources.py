@@ -52,7 +52,7 @@ class WikiSummarySource(QuoteSource):
 
 
 def fetch_quote_rotating() -> Optional[str]:
-    sources = [ZenQuotesSource, WikiSummarySource]
+	sources = [ZenQuotesSource, WikiSummarySource]
 	random.shuffle(sources)
 	for cls in sources:
 		q = cls().fetch()
