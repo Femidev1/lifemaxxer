@@ -356,6 +356,49 @@ def ingest_apis(
     result = store.ingest_quotes(quotes, source="apis")
     print(f"added={result['added']} duplicates={result['duplicates']}")
 
+
+@app.command("post-quote-image")
+def post_quote_image(
+    dry_run: Optional[bool] = typer.Option(
+        None,
+        "--dry-run/--no-dry-run",
+        help="If set, overrides config default to skip posting or force posting.",
+    ),
+):
+    """Post a quote from the CSV store with image; no AI rewriting."""
+    config, _generator, twitter = _load_components()
+    use_dry_run = config.dry_run_default if dry_run is None else dry_run
+    store = QuoteStore()
+    pick = store.pick_for_post(cooldown_days=14)
+    if not pick:
+        print("[error] No eligible quotes in store. Ingest CSV or APIs first.")
+        return
+    tweet = _truncate_to_limit(_sanitize_no_emdash((pick.get("text") or "").strip()), config.max_length)
+    if not tweet:
+        print("[error] Empty quote text.")
+        return
+    print(tweet)
+    # Build image prompt purely from content
+    vis_prompt = build_sdxl_prompt(None, tweet, "fallback")  # templates only
+    ai = AIImageClient(config)
+    neg = config.horde_negative_prompt or "text, watermark, signature, logo, blurry, lowres, artifacts, deformed, extra fingers, bad anatomy"
+    models = [config.horde_model] if config.horde_model else ["SDXL 1.0"]
+    img_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=32, negative_prompt=neg, models=models)
+    # Fallback duotone
+    maker = ImageMaker()
+    if not img_bytes:
+        img_bytes = maker.compose_duotone_text(tweet)
+    img_bytes = maker.upscale_bytes(img_bytes, max_side=1400, sharpen=True)
+    if use_dry_run:
+        print("[dry-run] Skipping post.")
+        return
+    tweet_id = twitter.upload_media_and_post(tweet, image_bytes=img_bytes, filename="quote.jpg") if img_bytes else twitter.post_tweet(tweet)
+    if tweet_id:
+        store.mark_posted(pick)
+        print(f"Posted tweet id: {tweet_id}")
+    else:
+        print("[skip] No post (rate-limited or error).")
+
 def run():
 	app()
 

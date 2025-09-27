@@ -51,29 +51,8 @@ class WikiSummarySource(QuoteSource):
 			return None
 
 
-class GutenbergStoicSource(QuoteSource):
-	URLS = [
-		"https://www.gutenberg.org/cache/epub/2680/pg2680.txt",  # Marcus Aurelius - Meditations
-	]
-
-	def fetch(self) -> Optional[str]:
-		try:
-			url = random.choice(self.URLS)
-			r = requests.get(url, timeout=20)
-			r.raise_for_status()
-			txt = r.text
-			paras = [p.strip() for p in txt.split("\n\n") if len(p.strip().split()) > 8]
-			if not paras:
-				return None
-			p = random.choice(paras)
-			p = re.sub(r"\s+", " ", p)
-			return textwrap.shorten(p, width=260, placeholder="…")
-		except Exception:
-			return None
-
-
 def fetch_quote_rotating() -> Optional[str]:
-	sources = [ZenQuotesSource, WikiSummarySource, GutenbergStoicSource]
+    sources = [ZenQuotesSource, WikiSummarySource]
 	random.shuffle(sources)
 	for cls in sources:
 		q = cls().fetch()
