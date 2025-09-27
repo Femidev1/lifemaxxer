@@ -371,7 +371,7 @@ def post_quote_image(
     store = QuoteStore()
     pick = store.pick_for_post(cooldown_days=14)
     if not pick:
-        print("[error] No eligible quotes in store. Ingest CSV or APIs first.")
+        print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
         return
     tweet = _truncate_to_limit(_sanitize_no_emdash((pick.get("text") or "").strip()), config.max_length)
     if not tweet:

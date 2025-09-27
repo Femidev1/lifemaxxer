@@ -100,11 +100,25 @@ class QuoteStore:
 		self._ensure_loaded()
 		quotes: List[str] = []
 		with open(csv_path, "r", newline="", encoding="utf-8") as f:
-			reader = csv.reader(f)
-			for row in reader:
-				if not row:
-					continue
-				quotes.append(row[0])
+			# Try DictReader first to support headers like: id,text,author,source
+			pos = f.tell()
+			peek = f.readline()
+			f.seek(pos)
+			if "," in (peek or "") and any(h in peek.lower() for h in ["text", "quote"]):
+				reader_d = csv.DictReader(f)
+				for row in reader_d:
+					if not row:
+						continue
+					t = row.get("text") or row.get("quote")
+					if t:
+						quotes.append(str(t))
+			else:
+				reader = csv.reader(f)
+				for row in reader:
+					if not row:
+						continue
+					# One-quote-per-line CSVs: take first column as quote text
+					quotes.append(row[0])
 		return self.ingest_quotes(quotes, source or os.path.basename(csv_path))
 
 	def pick_for_post(self, cooldown_days: int = 14) -> Optional[Dict[str, str]]:
@@ -142,5 +156,9 @@ class QuoteStore:
 		except Exception:
 			rec["times_posted"] = "1"
 		self._persist()
+
+	def count(self) -> int:
+		self._ensure_loaded()
+		return len(self.records)
 
 
