@@ -7,6 +7,17 @@ on:
         description: "Use Stoic API instead of generated prompt"
         required: false
         default: "true"
+      csv_path:
+        description: "Optional path to a CSV in repo to ingest (one quote per line)"
+        required: false
+        default: ""
+      ingest_api_count:
+        description: "Number of quotes to fetch from APIs before posting"
+        required: false
+        default: "0"
+
+permissions:
+  contents: write
 
 jobs:
   post_now:
@@ -24,6 +35,9 @@ jobs:
       MAX_LENGTH: 220
       DRY_RUN_DEFAULT: 'false'
       TWITTER_WAIT_ON_RATE_LIMIT: 'true'
+      HORDE_API_KEY: ${{ secrets.HORDE_API_KEY }}
+      HORDE_MODEL: ${{ vars.HORDE_MODEL }}
+      HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -76,6 +90,28 @@ jobs:
             curl -sSf http://127.0.0.1:11434/api/tags >/dev/null
           else
             echo "Skipping Ollama install (provider in use)."
+          fi
+
+      - name: Ingest CSV quotes (optional)
+        if: ${{ github.event.inputs.csv_path != '' }}
+        run: |
+          python -m bot ingest-csv "${{ github.event.inputs.csv_path }}" --source github || true
+
+      - name: Ingest API quotes (optional)
+        if: ${{ github.event.inputs.ingest_api_count != '0' }}
+        run: |
+          python -m bot ingest-apis --count ${{ github.event.inputs.ingest_api_count }} || true
+
+      - name: Commit updated quotes_master.csv (if changed)
+        run: |
+          if git diff --quiet --exit-code -- quotes_master.csv; then
+            echo "No quote changes to commit."
+          else
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add quotes_master.csv
+            git commit -m "chore: update quotes_master.csv [skip ci]"
+            git push
           fi
 
       - name: Choose prompt
