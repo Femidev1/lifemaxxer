@@ -100,6 +100,13 @@ jobs:
         run: |
           python -m bot ingest-csv "${{ github.event.inputs.csv_path }}" --source github || true
 
+      - name: Auto-ingest default CSV if present (when csv_path empty)
+        if: ${{ github.event.inputs.csv_path == '' }}
+        run: |
+          if [ -f "quotes_public_domain_batch1.csv" ]; then
+            python -m bot ingest-csv "quotes_public_domain_batch1.csv" --source github || true
+          fi
+
       - name: Ingest API quotes (optional)
         if: ${{ github.event.inputs.ingest_api_count != '0' }}
         run: |
