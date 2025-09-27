@@ -13,6 +13,7 @@ from .image_maker import ImageMaker
 from .ai_image_client import AIImageClient
 from .sources import fetch_quote_rotating
 from .image_prompt import build_sdxl_prompt
+from .quote_store import QuoteStore
 
 app = typer.Typer(help="AI-powered Twitter bot CLI")
 
@@ -271,8 +272,14 @@ def post_auto_image(
     config, generator, twitter = _load_components()
     use_dry_run = config.dry_run_default if dry_run is None else dry_run
 
-    # 1) Fetch source
-    raw = fetch_quote_rotating()
+    # 0) Ensure quote store exists and ingest APIs if desired (optional external call elsewhere)
+    store = QuoteStore()
+
+    # 1) Fetch source (prefer stored quotes; fallback to APIs)
+    pick = store.pick_for_post(cooldown_days=14)
+    raw = (pick or {}).get("text") if pick else None
+    if not raw:
+        raw = fetch_quote_rotating()
     if not raw:
         print("[error] No source quote found.")
         return
@@ -317,10 +324,37 @@ def post_auto_image(
         tweet_id = twitter.upload_media_and_post(tweet, image_bytes=img_bytes, filename="auto.jpg")
     else:
         tweet_id = twitter.post_tweet(tweet)
+    # Mark posted if we used a stored quote
+    if tweet_id and pick:
+        store.mark_posted(pick)
     if tweet_id:
         print(f"Posted tweet id: {tweet_id}")
     else:
         print("[skip] No post (rate-limited or error).")
+
+
+@app.command("ingest-csv")
+def ingest_csv(
+    path: str = typer.Argument(..., help="Path to CSV with one quote per line"),
+    source: Optional[str] = typer.Option(None, help="Source label for these quotes"),
+):
+    store = QuoteStore()
+    result = store.ingest_csv_file(path, source=source)
+    print(f"added={result['added']} duplicates={result['duplicates']}")
+
+
+@app.command("ingest-apis")
+def ingest_apis(
+    count: int = typer.Option(10, help="How many quotes to fetch from APIs"),
+):
+    store = QuoteStore()
+    quotes = []
+    for _ in range(count):
+        q = fetch_quote_rotating()
+        if q:
+            quotes.append(q)
+    result = store.ingest_quotes(quotes, source="apis")
+    print(f"added={result['added']} duplicates={result['duplicates']}")
 
 def run():
 	app()

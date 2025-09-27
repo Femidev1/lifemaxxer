@@ -19,7 +19,6 @@ class AIImageClient:
 		self.config = config
 		self.base_url = (config.horde_base_url or "https://stablehorde.net/api").rstrip("/")
 		self.api_key = config.horde_api_key or "0000000000"  # anonymous
-		self.comfy_base_url = (config.comfy_base_url or "").rstrip("/")
 
 	def generate(
 		self,
@@ -30,97 +29,11 @@ class AIImageClient:
 		negative_prompt: Optional[str] = None,
 		models: Optional[List[str]] = None,
 	) -> Optional[bytes]:
-		# Prefer ComfyUI if configured
-		if self.comfy_base_url:
-			img = self._generate_comfy(prompt, width, height, steps, negative_prompt)
-			if img:
-				return img
 		try:
 			job_id = self._submit(prompt, width, height, steps, negative_prompt=negative_prompt, models=models)
 			if not job_id:
 				return None
 			return self._await_and_fetch(job_id)
-		except Exception:
-			return None
-
-	def _generate_comfy(
-		self,
-		prompt: str,
-		width: int,
-		height: int,
-		steps: int,
-		negative_prompt: Optional[str],
-	) -> Optional[bytes]:
-		try:
-			if not self.comfy_base_url:
-				return None
-			# Minimal ComfyUI API (queue prompt) expects a graph; here we send a simple SDXL text2img workflow
-			# User must have ComfyUI running with SDXL checkpoint name matching config.comfy_checkpoint
-			ckpt = self.config.comfy_checkpoint or "sdxl.safetensors"
-			graph: Dict[str, Any] = {
-				"prompt": {
-					"3": {
-						"class_type": "CheckpointLoaderSimple",
-						"inputs": {"ckpt_name": ckpt},
-					},
-					"5": {
-						"class_type": "KSampler",
-						"inputs": {
-							"seed": int(time.time() * 1000) % 2_147_483_647,
-							"steps": int(steps),
-							"cfg": 7.0,
-							"sampler_name": "dpmpp_2m_karras",
-							"scheduler": "karras",
-							"denoise": 1.0,
-						},
-					},
-					"7": {
-						"class_type": "CLIPTextEncode",
-						"inputs": {"text": prompt},
-					},
-					"8": {
-						"class_type": "CLIPTextEncode",
-						"inputs": {"text": negative_prompt or ""},
-					},
-					"12": {
-						"class_type": "EmptyLatentImage",
-						"inputs": {"width": int(width), "height": int(height)},
-					},
-					"20": {
-						"class_type": "VAEDecode",
-						"inputs": {},
-					},
-					"25": {
-						"class_type": "SaveImage",
-						"inputs": {"filename_prefix": "lifemaxxer"},
-					},
-				},
-			}
-			r = requests.post(f"{self.comfy_base_url}/prompt", json=graph, timeout=self.config.comfy_timeout_s)
-			r.raise_for_status()
-			data = r.json()
-			# Poll history/images endpoint for result
-			hash_id = data.get("prompt_id") or data.get("prompt_hash")
-			if not hash_id:
-				return None
-			for _ in range(self.config.comfy_timeout_s):
-				h = requests.get(f"{self.comfy_base_url}/history/{hash_id}", timeout=5)
-				if h.status_code == 200:
-					jd = h.json()
-					# Extract base64 image
-					for _, node in jd.items():
-						outs = node.get("outputs") or {}
-						imgs = outs.get("images") or []
-						if imgs:
-							img = imgs[0]
-							# Comfy stores files; for a stateless call we would need /view endpoint
-							img_name = img.get("filename")
-							if img_name:
-								view = requests.get(f"{self.comfy_base_url}/view?filename={img_name}", timeout=10)
-								if view.status_code == 200:
-									return view.content
-			time.sleep(1)
-			return None
 		except Exception:
 			return None
 
