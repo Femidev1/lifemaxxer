@@ -24,13 +24,12 @@ jobs:
       TWITTER_API_KEY_SECRET: ${{ secrets.TWITTER_API_KEY_SECRET }}
       TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
       TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
-      PROVIDER_BASE_URL: ${{ secrets.PROVIDER_BASE_URL }}
-      PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
-      PROVIDER_MODEL: ${{ secrets.PROVIDER_MODEL }}
-      OLLAMA_MODEL: qwen2.5:3b-instruct
       MAX_LENGTH: 220
       DRY_RUN_DEFAULT: 'false'
       TWITTER_WAIT_ON_RATE_LIMIT: 'true'
+      HORDE_API_KEY: ${{ secrets.HORDE_API_KEY }}
+      HORDE_MODEL: ${{ vars.HORDE_MODEL }}
+      HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -81,56 +80,11 @@ jobs:
         if: ${{ steps.decide.outputs.should_post == 'true' }}
         run: pip install -r requirements.txt
 
-      - name: Configure engine (provider or local Ollama)
-        if: ${{ steps.decide.outputs.should_post == 'true' }}
-        run: |
-          if [ -n "${PROVIDER_API_KEY}" ] && [ -n "${PROVIDER_BASE_URL}" ] && [ -n "${PROVIDER_MODEL}" ]; then
-            if curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null; then
-              echo "ENGINE=provider" >> $GITHUB_ENV
-              echo "OPENROUTER_REFERER=https://github.com/${{ github.repository }}" >> $GITHUB_ENV
-              echo "OPENROUTER_TITLE=Lifemaxxer Bot" >> $GITHUB_ENV
-            else
-              echo "Provider unreachable at ${PROVIDER_BASE_URL}; falling back to runner Ollama"
-              echo "ENGINE=ollama" >> $GITHUB_ENV
-            fi
-          else
-            echo "ENGINE=ollama" >> $GITHUB_ENV
-            echo "Using local Ollama on the runner."
-          fi
-
-      - name: Cache Ollama models
-        if: ${{ steps.decide.outputs.should_post == 'true' }}
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama
-          key: ollama-models-${{ runner.os }}-qwen2.5-3b-instruct-v1
-        
-      - name: Install and start Ollama if needed
-        if: ${{ steps.decide.outputs.should_post == 'true' }}
-        run: |
-          if [ "${ENGINE}" = "ollama" ]; then
-            if ! command -v ollama >/dev/null 2>&1; then
-              curl -fsSL https://ollama.com/install.sh | sh
-            fi
-            nohup ollama serve >/tmp/ollama.log 2>&1 &
-            sleep 2
-            MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
-            if ollama list | awk '{print $1}' | grep -qx "$MODEL"; then
-              echo "Ollama model '$MODEL' already present; skipping pull."
-            else
-              ollama pull "$MODEL"
-            fi
-            curl -sSf http://127.0.0.1:11434/api/tags >/dev/null
-          else
-            echo "Skipping Ollama install (provider in use)."
-          fi
-
-      - name: Post Auto (image)
+      - name: Post CSV Quote (image)
         if: ${{ steps.decide.outputs.should_post == 'true' }}
         timeout-minutes: 6
         run: |
-          ENGINE_TO_USE=${ENGINE:-provider}
-          python -m bot post-auto-image --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (auto source/image or twitter error)"
+          python -m bot post-quote-image --no-dry-run || echo "post failed (csv/image or twitter error)"
 
       - name: Skipped (not a posting hour)
         if: ${{ steps.decide.outputs.should_post != 'true' }}
