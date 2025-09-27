@@ -8,9 +8,9 @@ on:
         required: false
         default: "true"
       csv_path:
-        description: "Optional path to a CSV in repo to ingest (one quote per line)"
+        description: "Path to a CSV in repo to ingest (one quote per line)"
         required: false
-        default: ""
+        default: "quotes_public_domain_batch1.csv"
       ingest_api_count:
         description: "Number of quotes to fetch from APIs before posting"
         required: false
@@ -91,16 +91,13 @@ jobs:
             echo "Skipping Ollama install (provider in use)."
           fi
 
-      - name: Ingest CSV quotes (optional)
-        if: ${{ github.event.inputs.csv_path != '' }}
+      - name: Ingest CSV quotes
         run: |
-          python -m bot ingest-csv "${{ github.event.inputs.csv_path }}" --source github || true
-
-      - name: Auto-ingest default CSV if present (when csv_path empty)
-        if: ${{ github.event.inputs.csv_path == '' }}
-        run: |
-          if [ -f "quotes_public_domain_batch1.csv" ]; then
-            python -m bot ingest-csv "quotes_public_domain_batch1.csv" --source github || true
+          if [ -f "${{ github.event.inputs.csv_path }}" ]; then
+            python -m bot ingest-csv "${{ github.event.inputs.csv_path }}" --source github
+          else
+            echo "CSV not found at path: ${{ github.event.inputs.csv_path }}" >&2
+            exit 1
           fi
 
       - name: Ingest API quotes (optional)
@@ -110,14 +107,18 @@ jobs:
 
       - name: Commit updated quotes_master.csv (if changed)
         run: |
-          if git diff --quiet --exit-code -- quotes_master.csv; then
-            echo "No quote changes to commit."
+          if [ -f quotes_master.csv ]; then
+            if git diff --quiet --exit-code -- quotes_master.csv; then
+              echo "No quote changes to commit."
+            else
+              git config user.name "github-actions"
+              git config user.email "github-actions@github.com"
+              git add quotes_master.csv
+              git commit -m "chore: update quotes_master.csv [skip ci]"
+              git push
+            fi
           else
-            git config user.name "github-actions"
-            git config user.email "github-actions@github.com"
-            git add quotes_master.csv
-            git commit -m "chore: update quotes_master.csv [skip ci]"
-            git push
+            echo "quotes_master.csv not found after ingest; posting will likely skip."
           fi
 
       - name: Choose prompt
