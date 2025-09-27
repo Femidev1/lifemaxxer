@@ -30,6 +30,7 @@ jobs:
       HORDE_API_KEY: ${{ secrets.HORDE_API_KEY }}
       HORDE_MODEL: ${{ vars.HORDE_MODEL }}
       HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
+      QUOTES_STORE_PATH: quotes_master.csv
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -79,6 +80,18 @@ jobs:
       - name: Install dependencies
         if: ${{ steps.decide.outputs.should_post == 'true' }}
         run: pip install -r requirements.txt
+
+      - name: Ensure master CSV exists
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: |
+          if [ ! -f quotes_master.csv ]; then
+            echo "Initializing empty quotes_master.csv"
+            python - <<'PY'
+import csv
+with open('quotes_master.csv','w',newline='',encoding='utf-8') as f:
+    csv.writer(f).writerow(['id','text','source','added_at','last_posted_at','times_posted'])
+PY
+          fi
 
       - name: Post CSV Quote (image)
         if: ${{ steps.decide.outputs.should_post == 'true' }}

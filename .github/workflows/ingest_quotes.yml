@@ -1,0 +1,65 @@
+name: Ingest quotes CSVs
+
+on:
+  workflow_dispatch:
+    inputs:
+      csv_glob:
+        description: "Glob of CSVs to ingest (default quotes_*.csv)"
+        required: false
+        default: "quotes_*.csv"
+  push:
+    paths:
+      - "*.csv"
+
+permissions:
+  contents: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Ingest CSVs
+        run: |
+          GLOB="${{ github.event.inputs.csv_glob || 'quotes_*.csv' }}"
+          found=0
+          for f in $(ls -1 $GLOB 2>/dev/null || true); do
+            if [ "$(basename "$f")" = "quotes_master.csv" ]; then
+              continue
+            fi
+            echo "Ingesting $f"
+            python -m bot ingest-csv "$f" --source github || true
+            found=1
+          done
+          if [ "$found" = "0" ]; then
+            echo "No CSVs matched glob: $GLOB"
+          fi
+
+      - name: Commit updated quotes_master.csv (if changed)
+        run: |
+          if [ -f quotes_master.csv ]; then
+            if git diff --quiet --exit-code -- quotes_master.csv; then
+              echo "No quote changes to commit."
+            else
+              git config user.name "github-actions"
+              git config user.email "github-actions@github.com"
+              git add quotes_master.csv
+              git commit -m "chore: ingest quotes into quotes_master.csv [skip ci]"
+              git push
+            fi
+          else
+            echo "quotes_master.csv not found after ingest."
+          fi
+
+
