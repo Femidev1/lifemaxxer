@@ -445,6 +445,41 @@ def post_quote_image(
         print("[skip] No post (rate-limited or error).")
 
 
+@app.command("post-quote-text")
+def post_quote_text(
+    dry_run: Optional[bool] = typer.Option(
+        None,
+        "--dry-run/--no-dry-run",
+        help="If set, overrides config default to skip posting or force posting.",
+    ),
+):
+    """Post a quote from the CSV store as plain text in the format: quote --- author."""
+    config, _generator, twitter = _load_components()
+    use_dry_run = config.dry_run_default if dry_run is None else dry_run
+    store = QuoteStore()
+    pick = store.pick_for_post(cooldown_days=14)
+    if not pick:
+        print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
+        return
+    text = (pick.get("text") or "").strip()
+    author = (pick.get("author") or "").strip()
+    tweet = f"{text} --- {author}" if author else text
+    tweet = _truncate_to_limit(_sanitize_no_emdash(tweet), config.max_length)
+    if not tweet:
+        print("[error] Empty quote text.")
+        return
+    print(tweet)
+    if use_dry_run:
+        print("[dry-run] Skipping post.")
+        return
+    tweet_id = twitter.post_tweet(tweet)
+    if tweet_id:
+        store.mark_posted(pick)
+        print(f"Posted tweet id: {tweet_id}")
+    else:
+        print("[skip] No post (rate-limited or error).")
+
+
 @app.command("post-cycle")
 def post_cycle(
     prompt: str = typer.Argument(..., help="Prompt seed for text tweets (guides the generator)"),
