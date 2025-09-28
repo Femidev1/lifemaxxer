@@ -661,6 +661,56 @@ def post_cycle(
         print("[skip] No post (rate-limited or error).")
     _write_cycle_index((idx + 1) % 10)
 
+
+@app.command("post-engage-image")
+def post_engage_image(
+    dry_run: Optional[bool] = typer.Option(
+        None,
+        "--dry-run/--no-dry-run",
+        help="If set, overrides config default to skip posting or force posting.",
+    ),
+):
+    """Post engagement text + image built from a quote (author image overlay if available)."""
+    config, _generator, twitter = _load_components()
+    use_dry_run = config.dry_run_default if dry_run is None else dry_run
+    store = QuoteStore()
+    pick = store.pick_for_post(cooldown_days=14)
+    if not pick:
+        print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
+        return
+    quote_text = (pick.get("text") or "").strip()
+    author = (pick.get("author") or "").strip()
+    tweet_text = random.choice(ENGAGEMENT_QUESTIONS)
+    print(tweet_text)
+
+    full_quote = f"{quote_text} --- {author}" if author else quote_text
+    full_quote = _truncate_to_limit(_sanitize_no_emdash(full_quote), 500)
+    maker = ImageMaker(width=1024, height=1024)
+    bg_bytes = _pick_author_image(author)
+    image_bytes = b""
+    if bg_bytes:
+        try:
+            from PIL import Image
+            import io
+            bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB")
+            image_bytes = maker.compose_quote(full_quote, background=bg_img)
+        except Exception as e:
+            print(f"[author-image-error] {type(e).__name__}: {e}")
+            image_bytes = b""
+    if not image_bytes:
+        image_bytes = maker.compose_monochrome_quote(full_quote)
+
+    if use_dry_run:
+        print("[dry-run] Skipping post.")
+        return
+    tweet_id = twitter.upload_media_and_post(tweet_text, image_bytes=image_bytes, filename="engage.jpg")
+    if tweet_id:
+        store.mark_posted(pick)
+        print(f"Posted tweet id: {tweet_id}")
+    else:
+        print("[skip] No post (rate-limited or error).")
+
+
 def run():
 	app()
 

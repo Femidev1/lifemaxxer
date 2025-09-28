@@ -148,7 +148,8 @@ jobs:
       - name: Post quote from store (text only)
         if: ${{ steps.decide.outputs.mode == 'quote' }}
         run: |
-          python -m bot post-quote-text --no-dry-run || echo "post failed (csv/twitter)"
+          # Every 4th run (mode=quote), post an engagement+image tweet built from a stored quote
+          python -m bot post-engage-image --no-dry-run || echo "post failed (image/csv/twitter)"
 
       - name: Update pattern state
         run: |
