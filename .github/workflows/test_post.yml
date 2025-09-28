@@ -78,6 +78,10 @@ jobs:
         run: |
           python -m bot ingest-apis --count ${{ github.event.inputs.ingest_api_count }} || true
 
+      - name: Initialize author asset folders
+        run: |
+          python -m bot init-authors-folders || true
+
       - name: Commit updated quotes_master.csv (if changed)
         run: |
           if [ -f quotes_master.csv ]; then
@@ -86,8 +90,8 @@ jobs:
             else
               git config user.name "github-actions"
               git config user.email "github-actions@github.com"
-              git add quotes_master.csv
-              git commit -m "chore: update quotes_master.csv [skip ci]"
+              git add quotes_master.csv assets
+              git commit -m "chore: update quotes and author folders [skip ci]"
               git push
             fi
           else

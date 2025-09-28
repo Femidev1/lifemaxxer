@@ -46,20 +46,32 @@ jobs:
             echo "No CSVs matched glob: $GLOB"
           fi
 
+      - name: Initialize author asset folders
+        run: |
+          python -m bot init-authors-folders || true
+
       - name: Commit updated quotes_master.csv (if changed)
         run: |
+          CHANGED=0
           if [ -f quotes_master.csv ]; then
-            if git diff --quiet --exit-code -- quotes_master.csv; then
-              echo "No quote changes to commit."
-            else
-              git config user.name "github-actions"
-              git config user.email "github-actions@github.com"
+            if ! git diff --quiet --exit-code -- quotes_master.csv; then
               git add quotes_master.csv
-              git commit -m "chore: ingest quotes into quotes_master.csv [skip ci]"
-              git push
+              CHANGED=1
             fi
           else
             echo "quotes_master.csv not found after ingest."
+          fi
+          if ! git diff --quiet --exit-code -- assets; then
+            git add assets
+            CHANGED=1
+          fi
+          if [ "$CHANGED" = "1" ]; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git commit -m "chore: update quotes and author folders [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
           fi
 
 

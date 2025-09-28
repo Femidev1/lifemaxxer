@@ -139,6 +139,11 @@ jobs:
             python -m bot ingest-csv quotes_public_domain_batch2.csv --source github || true
           fi
 
+      - name: Initialize author asset folders
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: |
+          python -m bot init-authors-folders || true
+
       - name: Choose prompt seed
         if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
         id: choose
@@ -190,6 +195,10 @@ jobs:
               git add quotes_master.csv
               CHANGED=1
             fi
+          fi
+          if ! git diff --quiet --exit-code -- assets; then
+            git add assets
+            CHANGED=1
           fi
           if [ "$CHANGED" = "1" ]; then
             git commit -m "chore: update post cycle state and quotes [skip ci]" || true

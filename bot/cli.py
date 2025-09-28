@@ -526,6 +526,11 @@ def init_authors_folders():
         path = os.path.join("assets", "authors", slug, "images")
         try:
             os.makedirs(path, exist_ok=True)
+            # ensure Git can track empty dirs
+            keep = os.path.join(path, ".gitkeep")
+            if not os.path.exists(keep):
+                with open(keep, "w", encoding="utf-8") as f:
+                    f.write("")
             created += 1
         except Exception:
             pass
