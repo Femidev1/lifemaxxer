@@ -106,14 +106,15 @@ jobs:
           IDX=0
           if [ -f "${PATTERN_STATE_PATH}" ]; then
             IDX=$(python - <<'PY'
-import json,sys
+import json, os
+path = os.getenv('PATTERN_STATE_PATH','pattern_state.json')
 try:
-    d=json.load(open(sys.argv[1],'r'))
+    d = json.load(open(path,'r'))
     print(int(d.get('index',0)))
 except Exception:
     print(0)
 PY
-"${PATTERN_STATE_PATH}")
+)
           fi
           MOD=$(( IDX % 4 ))
           if [ "$MOD" -lt 3 ]; then
