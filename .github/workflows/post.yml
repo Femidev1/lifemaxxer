@@ -35,6 +35,10 @@ jobs:
       HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
       QUOTES_STORE_PATH: quotes_master.csv
       CYCLE_STATE_PATH: post_cycle_state.json
+      PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
+      PROVIDER_BASE_URL: ${{ vars.PROVIDER_BASE_URL }}
+      PROVIDER_MODEL: ${{ vars.PROVIDER_MODEL }}
+      OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -154,7 +158,7 @@ jobs:
             python - <<'PY'
 import csv
 with open('quotes_master.csv','w',newline='',encoding='utf-8') as f:
-    csv.writer(f).writerow(['id','text','source','added_at','last_posted_at','times_posted'])
+    csv.writer(f).writerow(['id','text','author','source','added_at','last_posted_at','times_posted'])
 PY
           fi
 

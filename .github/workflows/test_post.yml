@@ -35,6 +35,10 @@ jobs:
       HORDE_MODEL: ${{ vars.HORDE_MODEL }}
       HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
       CYCLE_STATE_PATH: post_cycle_state.json
+      PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
+      PROVIDER_BASE_URL: ${{ vars.PROVIDER_BASE_URL }}
+      PROVIDER_MODEL: ${{ vars.PROVIDER_MODEL }}
+      OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
