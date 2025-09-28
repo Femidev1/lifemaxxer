@@ -115,6 +115,32 @@ ENGAGEMENT_QUESTIONS = [
 ]
 
 
+# Recent LLM posts cache to avoid duplicate tweets
+def _recent_posts_path() -> str:
+    return os.getenv("RECENT_POSTS_PATH", "recent_posts.json")
+
+
+def _read_recent_posts() -> list[str]:
+    path = _recent_posts_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return [str(x) for x in data][-200:]
+    except Exception:
+        pass
+    return []
+
+
+def _write_recent_posts(items: list[str]) -> None:
+    path = _recent_posts_path()
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(items[-200:], f)
+    except Exception:
+        pass
+
+
 @app.command()
 def generate(
 	prompt: str = typer.Argument(..., help="Prompt for content generation"),
@@ -146,7 +172,15 @@ def post(
 		raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
 	config, generator, twitter = _load_components()
 	use_dry_run = config.dry_run_default if dry_run is None else dry_run
-	text = generator.generate(prompt, preferred_engine=engine)
+    text = generator.generate(prompt, preferred_engine=engine)
+    # If provider/engine yields empty or repeats, retry with minor jitter and ensure not in recent cache
+    recent = set(_read_recent_posts())
+    attempts = 0
+    while (not text or text.strip() in recent) and attempts < 3:
+        # add tiny randomness to reduce identical outputs
+        jitter = f"\nAdd one subtle variation in phrasing; keep content and tone identical."
+        text = generator.generate(prompt + jitter, preferred_engine="auto")
+        attempts += 1
 	if not text:
 		print("[error] Empty generation result; not posting.")
 		return
@@ -157,6 +191,10 @@ def post(
 	tweet_id = twitter.post_tweet(text)
 	if tweet_id:
 		print(f"Posted tweet id: {tweet_id}")
+        # update recent cache
+        cache = _read_recent_posts()
+        cache.append(text.strip())
+        _write_recent_posts(cache)
 	else:
 		print("[skip] No post (rate-limited or error).")
 

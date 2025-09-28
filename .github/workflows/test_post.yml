@@ -36,6 +36,7 @@ jobs:
       HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
       CYCLE_STATE_PATH: post_cycle_state.json
       PATTERN_STATE_PATH: pattern_state.json
+      RECENT_POSTS_PATH: recent_posts.json
       PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
       PROVIDER_BASE_URL: ${{ vars.PROVIDER_BASE_URL }}
       PROVIDER_MODEL: ${{ vars.PROVIDER_MODEL }}
