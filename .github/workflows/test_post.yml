@@ -35,6 +35,7 @@ jobs:
       HORDE_MODEL: ${{ vars.HORDE_MODEL }}
       HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
       CYCLE_STATE_PATH: post_cycle_state.json
+      PATTERN_STATE_PATH: pattern_state.json
       PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
       PROVIDER_BASE_URL: ${{ vars.PROVIDER_BASE_URL }}
       PROVIDER_MODEL: ${{ vars.PROVIDER_MODEL }}
@@ -98,7 +99,31 @@ jobs:
             echo "quotes_master.csv not found after ingest; posting will likely skip."
           fi
 
-      - name: Choose prompt
+      - name: Decide mode (3x LLM then 1x quote)
+        id: decide
+        shell: bash
+        run: |
+          IDX=0
+          if [ -f "${PATTERN_STATE_PATH}" ]; then
+            IDX=$(python - <<'PY'
+import json,sys
+try:
+    d=json.load(open(sys.argv[1],'r'))
+    print(int(d.get('index',0)))
+except Exception:
+    print(0)
+PY
+"${PATTERN_STATE_PATH}")
+          fi
+          MOD=$(( IDX % 4 ))
+          if [ "$MOD" -lt 3 ]; then
+            echo "mode=llm" >> $GITHUB_OUTPUT
+          else
+            echo "mode=quote" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Choose prompt for LLM
+        if: ${{ steps.decide.outputs.mode == 'llm' }}
         id: choose
         shell: bash
         run: |
@@ -108,11 +133,11 @@ jobs:
           seed = int(now.strftime("%Y%m%d%H%M%S"))
           random.seed(seed)
           prompts = [
-            "Write a raw, red‑pill style tweet for men about masculinity, purpose, goals, growth, discipline. Be blunt, confident, no fluff. No hate speech or slurs. Be direct , blunt and harsh. Under 150 chars.",
-            "Give a harsh truth for men on discipline and delayed gratification. Raw, direct; profanity allowed but no slurs. Be direct , blunt and harsh. Under 150 chars.",
-            "Drop unfiltered advice to men on dating dynamics: respect, standards, leading yourself first. Blunt, may use profanity; never demeaning groups. Be direct , blunt and harsh. Under 150 chars.",
-            "Short punch to the gut about purpose over comfort. Raw, no fluff; profanity allowed (no hate). Be direct , blunt and harsh. Under 150 chars.",
-            "Masculinity reminder: responsibility, courage, restraint. Make it gritty; profanity ok, no slurs. Be direct , blunt and harsh. Under 150 chars.",
+            "Short blunt tweet about discipline, stoicism, purpose, self-control. No hashtags, no emojis.",
+            "Raw, direct one-liner for men about delayed gratification and discipline.",
+            "Harsh truth about purpose over comfort. Be blunt and tight.",
+            "No fluff: one sentence about self-control and restraint.",
+            "Direct reminder: responsibility, courage, restraint. Keep it gritty.",
           ]
           print(random.choice(prompts))
           PY
@@ -121,7 +146,40 @@ jobs:
           echo "$PROMPT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Post via post-cycle
+      - name: Post LLM motivational
+        if: ${{ steps.decide.outputs.mode == 'llm' }}
         run: |
           ENGINE_TO_USE=${ENGINE:-auto}
-          python -m bot post-cycle "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (generation or provider error)"
+          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (generation/provider)"
+
+      - name: Post quote from store (text only)
+        if: ${{ steps.decide.outputs.mode == 'quote' }}
+        run: |
+          python -m bot post-quote-text --no-dry-run || echo "post failed (csv/twitter)"
+
+      - name: Update pattern state
+        run: |
+          python - << 'PY'
+import json,os
+path=os.getenv('PATTERN_STATE_PATH','pattern_state.json')
+try:
+    d=json.load(open(path,'r'))
+except Exception:
+    d={}
+idx=int(d.get('index',0))+1
+d['index']=idx
+open(path,'w').write(json.dumps(d))
+print('index',idx)
+PY
+
+      - name: Commit pattern state
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          if ! git diff --quiet --exit-code -- "$PATTERN_STATE_PATH"; then
+            git add "$PATTERN_STATE_PATH"
+            git commit -m "chore(test): update pattern state [skip ci]" || true
+            git push || true
+          else
+            echo "No pattern state changes to commit."
+          fi
