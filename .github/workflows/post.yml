@@ -10,6 +10,9 @@ on:
   schedule:
     - cron: '0 * * * *'
 
+permissions:
+  contents: write
+
 jobs:
   post:
     runs-on: ubuntu-latest
@@ -40,29 +43,18 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Decide if posting this hour
+      - name: Decide delay this hour (always post unless cooling down)
         id: decide
         shell: bash
         run: |
           python - << 'PY'
           import os, datetime, random
           now = datetime.datetime.utcnow()
-          day_key = now.strftime('%Y%m%d')
-          salt = (os.getenv('TWITTER_API_KEY') or '')[-6:]
-          seed = f"{day_key}-{salt}"
-          rng = random.Random(seed)
-          hours = list(range(24))
-          chosen_hours = rng.sample(hours, 17)
           force_now = (os.getenv('FORCE_NOW','false').lower() == 'true')
-          should_post = force_now or (now.hour in chosen_hours)
-          delay_min = 0
-          if should_post:
-              if force_now:
-                  delay_min = 0
-              else:
-                  rng2 = random.Random(f"{seed}-{now.hour}")
-                  # Cap delay to <=25 min to avoid overlap with next hour's run
-                  delay_min = rng2.randint(0, 25)
+          seed = now.strftime('%Y%m%d%H')
+          rng = random.Random(seed)
+          delay_min = 0 if force_now else rng.randint(0,55)
+          should_post = True
           # Write to GitHub Outputs
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"should_post={'true' if should_post else 'false'}\n")
@@ -76,6 +68,35 @@ jobs:
         run: |
           echo "Sleeping ${{ steps.decide.outputs.delay_min }} minute(s) before posting..."
           sleep $(( 60 * ${{ steps.decide.outputs.delay_min }} ))
+
+      - name: Check cooldown state
+        id: cooldown
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: |
+          python - << 'PY'
+          import os, json, datetime
+          path = 'bot_state.json'
+          now = datetime.datetime.utcnow()
+          should_skip = False
+          until = None
+          if os.path.exists(path):
+              try:
+                  with open(path,'r') as f:
+                      d = json.load(f)
+                  cu = d.get('cooldown_until')
+                  if cu:
+                      until = datetime.datetime.fromisoformat(cu.replace('Z','+00:00'))
+                      if until > now:
+                          should_skip = True
+              except Exception:
+                  pass
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"skip_due_to_cooldown={'true' if should_skip else 'false'}\n")
+              f.write(f"cooldown_until={until.isoformat() if until else ''}\n")
+          print(f"skip_due_to_cooldown={'true' if should_skip else 'false'}")
+          if until:
+              print(f"cooldown_until={until.isoformat()}")
+          PY
 
       - name: Install dependencies
         if: ${{ steps.decide.outputs.should_post == 'true' }}
@@ -94,11 +115,36 @@ PY
           fi
 
       - name: Post CSV Quote (image)
-        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
         timeout-minutes: 6
         run: |
-          python -m bot post-quote-image --no-dry-run || echo "post failed (csv/image or twitter error)"
+          set -o pipefail
+          python -m bot post-quote-image --no-dry-run | tee /tmp/post.log
+          echo "--- post output above ---"
 
-      - name: Skipped (not a posting hour)
-        if: ${{ steps.decide.outputs.should_post != 'true' }}
-        run: echo "Not a posting hour for today; skipping."
+      - name: Enter cooldown if rate-limited
+        if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
+        run: |
+          if grep -q "\[rate-limit\]" /tmp/post.log 2>/dev/null; then
+            echo "Rate limit detected. Entering cooldown..."
+            python - << 'PY'
+            import json, datetime, random
+            now = datetime.datetime.utcnow()
+            hours = random.randint(24,36)
+            until = now + datetime.timedelta(hours=hours)
+            with open('bot_state.json','w') as f:
+                json.dump({'cooldown_until': until.isoformat()+'Z'}, f)
+            print('cooldown_until', until.isoformat()+'Z')
+            PY
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add bot_state.json
+            git commit -m "chore: enter cooldown after rate limit [skip ci]" || true
+            git push || true
+          else
+            echo "No rate limit detected; not entering cooldown."
+          fi
+
+      - name: Skipped (cooldown active or not a posting hour)
+        if: ${{ steps.decide.outputs.should_post != 'true' || steps.cooldown.outputs.skip_due_to_cooldown == 'true' }}
+        run: echo "Skipping this hour (cooldown or disabled)."
