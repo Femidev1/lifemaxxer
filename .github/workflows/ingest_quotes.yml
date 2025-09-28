@@ -68,7 +68,7 @@ jobs:
           if [ "$CHANGED" = "1" ]; then
             git config user.name "github-actions"
             git config user.email "github-actions@github.com"
-            git commit -m "chore: update quotes and author folders [skip ci]"
+            git commit -m "chore: update quotes and asset categories [skip ci]"
             git push
           else
             echo "No changes to commit."

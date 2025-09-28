@@ -30,13 +30,79 @@ def _author_slug(raw: str) -> str:
     return s or "unknown"
 
 
+def _classify_author(author: str) -> tuple[str, Optional[str]]:
+    """Return (category, subfolder) for an author.
+
+    Categories:
+    - celebrities: flat (no subfolder)
+    - stoic: subfolder per key figure (marcus-aurelius, seneca, epictetus, socrates, plato, aristotle)
+    - philosophy: subfolder per key figure (carl-jung, nietzsche, confucius, lao-tzu, etc.)
+    - religion: subfolder per tradition (buddha, christianity, zen, japanese, chinese)
+    """
+    a = (author or "").strip().lower()
+    s = _author_slug(a)
+    # Religion first
+    if "buddha" in a or s in {"gautama-buddha"}:
+        return ("religion", "buddha")
+    if any(k in a for k in ["christ", "bible", "new testament", "old testament"]):
+        return ("religion", "christianity")
+    if "zen" in a:
+        return ("religion", "zen")
+    if "japanese proverb" in a or "japanese" in a:
+        return ("religion", "japanese")
+    if "chinese proverb" in a or "chinese" in a:
+        return ("religion", "chinese")
+
+    # Stoic and classical philosophers (as requested under stoic)
+    stoics = {
+        "marcus-aurelius",
+        "seneca",
+        "lucius-annaeus-seneca",
+        "epictetus",
+        "socrates",
+        "plato",
+        "aristotle",
+    }
+    if s in stoics:
+        return ("stoic", s)
+
+    # Philosophy bucket
+    philosophers = {
+        "carl-jung",
+        "friedrich-nietzsche",
+        "nietzsche",
+        "confucius",
+        "lao-tzu",
+        "laozi",
+        "heraclitus",
+        "protagoras",
+        "descartes",
+        "ren-descartes",
+    }
+    if s in philosophers:
+        return ("philosophy", s)
+
+    # Default to celebrities (flat)
+    return ("celebrities", None)
+
+
 def _pick_author_image(author: str) -> Optional[bytes]:
-    slug = _author_slug(author)
-    base = os.path.join("assets", "authors", slug, "images")
+    # Prefer new category structure
     try:
+        category, sub = _classify_author(author)
+        if category == "celebrities":
+            base = os.path.join("assets", "celebrities", "images")
+        elif category in {"stoic", "philosophy"}:
+            base = os.path.join("assets", category, (sub or "misc"), "images")
+        elif category == "religion":
+            base = os.path.join("assets", "religion", (sub or "misc"), "images")
+        else:
+            base = os.path.join("assets", "celebrities", "images")
         if not os.path.isdir(base):
-            # fallback to unknown
-            base = os.path.join("assets", "authors", "unknown", "images")
+            # Backward-compat to old per-author layout
+            slug = _author_slug(author)
+            legacy = os.path.join("assets", "authors", slug, "images")
+            base = legacy if os.path.isdir(legacy) else os.path.join("assets", "celebrities", "images")
         files = []
         for name in os.listdir(base):
             p = os.path.join(base, name)
