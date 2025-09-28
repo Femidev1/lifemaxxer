@@ -155,11 +155,7 @@ jobs:
         run: |
           if [ ! -f quotes_master.csv ]; then
             echo "Initializing empty quotes_master.csv"
-            python - <<'PY'
-import csv
-with open('quotes_master.csv','w',newline='',encoding='utf-8') as f:
-    csv.writer(f).writerow(['id','text','author','source','added_at','last_posted_at','times_posted'])
-PY
+            printf "id,text,author,source,added_at,last_posted_at,times_posted\n" > quotes_master.csv
           fi
 
       - name: Ingest CSV quotes (idempotent)
