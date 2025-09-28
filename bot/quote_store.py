@@ -13,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 CSV_HEADER = [
 	"id",
 	"text",
+	"author",
 	"source",
 	"added_at",
 	"last_posted_at",
@@ -56,6 +57,8 @@ class QuoteStore:
 			for row in reader:
 				if not row.get("text"):
 					continue
+				# Backward compatibility: older files may not have 'author'
+				row.setdefault("author", "")
 				self.records.append(row)
 				norm = _normalize_text(row["text"])
 				self._by_norm[norm] = row
@@ -70,11 +73,12 @@ class QuoteStore:
 				writer.writerow({k: r.get(k, "") for k in CSV_HEADER})
 		os.replace(tmp_path, self.store_path)
 
-	def ingest_quotes(self, quotes: List[str], source: str) -> Dict[str, int]:
+	def ingest_quote_records(self, records: List[Dict[str, str]], source: str) -> Dict[str, int]:
 		self._ensure_loaded()
 		added = 0
 		dupes = 0
-		for q in quotes:
+		for rec_in in records:
+			q = rec_in.get("text") if isinstance(rec_in, dict) else str(rec_in)
 			if not q or not str(q).strip():
 				continue
 			norm = _normalize_text(str(q))
@@ -84,6 +88,7 @@ class QuoteStore:
 			rec = {
 				"id": str(uuid.uuid4()),
 				"text": str(q).strip(),
+				"author": (rec_in.get("author") if isinstance(rec_in, dict) else "") or "",
 				"source": source,
 				"added_at": _utc_now_iso(),
 				"last_posted_at": "",
@@ -96,9 +101,14 @@ class QuoteStore:
 			self._persist()
 		return {"added": added, "duplicates": dupes}
 
+	def ingest_quotes(self, quotes: List[str], source: str) -> Dict[str, int]:
+		# Compatibility wrapper for plain text lists
+		recs = [{"text": q, "author": ""} for q in quotes]
+		return self.ingest_quote_records(recs, source)
+
 	def ingest_csv_file(self, csv_path: str, source: Optional[str] = None) -> Dict[str, int]:
 		self._ensure_loaded()
-		quotes: List[str] = []
+		records: List[Dict[str, str]] = []
 		with open(csv_path, "r", newline="", encoding="utf-8") as f:
 			# Try DictReader first to support headers like: id,text,author,source
 			pos = f.tell()
@@ -111,15 +121,15 @@ class QuoteStore:
 						continue
 					t = row.get("text") or row.get("quote")
 					if t:
-						quotes.append(str(t))
+						records.append({"text": str(t), "author": (row.get("author") or "").strip()})
 			else:
 				reader = csv.reader(f)
 				for row in reader:
 					if not row:
 						continue
 					# One-quote-per-line CSVs: take first column as quote text
-					quotes.append(row[0])
-		return self.ingest_quotes(quotes, source or os.path.basename(csv_path))
+					records.append({"text": row[0], "author": ""})
+		return self.ingest_quote_records(records, source or os.path.basename(csv_path))
 
 	def pick_for_post(self, cooldown_days: int = 14) -> Optional[Dict[str, str]]:
 		self._ensure_loaded()

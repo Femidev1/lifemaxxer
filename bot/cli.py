@@ -373,7 +373,10 @@ def post_quote_image(
     if not pick:
         print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
         return
-    tweet = _truncate_to_limit(_sanitize_no_emdash((pick.get("text") or "").strip()), config.max_length)
+    text = (pick.get("text") or "").strip()
+    author = (pick.get("author") or "").strip()
+    tweet = f"{text} --- {author}" if author else text
+    tweet = _truncate_to_limit(_sanitize_no_emdash(tweet), config.max_length)
     if not tweet:
         print("[error] Empty quote text.")
         return
