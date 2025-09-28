@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 class ImageMaker:
 	"""Compose a quote over a provided background or free fallback (Picsum)."""
 
-	def __init__(self, width: int = 1080, height: int = 1350):
+	def __init__(self, width: int = 1024, height: int = 1024):
 		self.width = width
 		self.height = height
 
@@ -48,6 +48,8 @@ class ImageMaker:
 	def compose_quote(self, text: str, background: Image.Image | None = None) -> bytes:
 		# Use provided background if any; otherwise fetch a random one
 		img = background if background is not None else self._fetch_background()
+		# Fit to canvas 1:1
+		img = ImageOps.fit(img, (self.width, self.height), method=Image.LANCZOS)
 		img = img.filter(ImageFilter.GaussianBlur(radius=2))
 
 		draw = ImageDraw.Draw(img)

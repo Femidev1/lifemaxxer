@@ -18,6 +18,38 @@ from .sources import fetch_quote_rotating
 from .image_prompt import build_sdxl_prompt
 from .quote_store import QuoteStore
 
+
+def _author_slug(raw: str) -> str:
+    s = (raw or "").strip().lower()
+    if not s:
+        return "unknown"
+    # normalize separators
+    s = s.replace("—", "-").replace("–", "-")
+    import re
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s or "unknown"
+
+
+def _pick_author_image(author: str) -> Optional[bytes]:
+    slug = _author_slug(author)
+    base = os.path.join("assets", "authors", slug, "images")
+    try:
+        if not os.path.isdir(base):
+            # fallback to unknown
+            base = os.path.join("assets", "authors", "unknown", "images")
+        files = []
+        for name in os.listdir(base):
+            p = os.path.join(base, name)
+            if os.path.isfile(p) and name.lower().endswith((".jpg", ".jpeg", ".png")):
+                files.append(p)
+        if not files:
+            return None
+        path = random.choice(files)
+        with open(path, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+
 app = typer.Typer(help="AI-powered Twitter bot CLI")
 
 
@@ -81,10 +113,6 @@ ENGAGEMENT_QUESTIONS = [
     "Solid or soft?",
     "Does this land?",
 ]
-
-
-def _ensure_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
 
 
 @app.command()
@@ -484,71 +512,24 @@ def post_quote_text(
         print("[skip] No post (rate-limited or error).")
 
 
-@app.command("render-quote-pack")
-def render_quote_pack(
-    out_dir: str = typer.Argument("rendered_quotes", help="Directory to save rendered images"),
-    limit: Optional[int] = typer.Option(None, help="Max number of images to render this run"),
-    monochrome: bool = typer.Option(True, help="Use monochrome poster style (black/white)"),
-):
-    """Offline/manual rendering: export a pack of images to disk for manual review and posting.
-
-    - Reads from quote store and renders images without posting.
-    - Filenames include id and a short slug for easy tracking.
-    """
-    _ensure_dir(out_dir)
+@app.command("init-authors-folders")
+def init_authors_folders():
+    """Create `assets/authors/<slug>/images` folders for all authors in the store (including unknown)."""
     store = QuoteStore()
-    count = 0
-    # Iterate deterministically to avoid repeats across runs
-    for rec in list(store.records) if store.records else []:
-        if limit is not None and count >= int(limit):
-            break
-        text = (rec.get("text") or "").strip()
-        author = (rec.get("author") or "").strip()
-        if not text:
-            continue
-        quote = f"{text} --- {author}" if author else text
-        maker = ImageMaker()
-        img = maker.compose_monochrome_quote(quote) if monochrome else maker.compose_quote(quote)
-        # Build filename
-        slug = (text[:40].lower().replace(" ", "-").replace("/", "-").replace("|", "-") if text else "quote")
-        name = f"{rec.get('id','')[:8]}_{slug}.jpg"
-        path = os.path.join(out_dir, name)
-        with open(path, "wb") as f:
-            f.write(img)
-        print(f"wrote {path}")
-        count += 1
-
-
-@app.command("post-image-manual")
-def post_image_manual(
-    image_path: str = typer.Argument(..., help="Path to a prepared image"),
-    text: str = typer.Argument(..., help="Tweet text to post with the image"),
-    dry_run: Optional[bool] = typer.Option(
-        None,
-        "--dry-run/--no-dry-run",
-        help="If set, overrides config default to skip posting or force posting.",
-    ),
-):
-    """Post a pre-rendered image with the provided text (manual workflow)."""
-    import pathlib
-    config, _generator, twitter = _load_components()
-    use_dry_run = config.dry_run_default if dry_run is None else dry_run
-    p = pathlib.Path(image_path)
-    if not p.exists() or not p.is_file():
-        print(f"[error] image not found: {image_path}")
-        return
-    with open(p, "rb") as f:
-        img_bytes = f.read()
-    text = _truncate_to_limit(_sanitize_no_emdash(text.strip()), config.max_length)
-    print(text)
-    if use_dry_run:
-        print("[dry-run] Skipping post.")
-        return
-    tweet_id = twitter.upload_media_and_post(text, image_bytes=img_bytes, filename=p.name)
-    if tweet_id:
-        print(f"Posted tweet id: {tweet_id}")
-    else:
-        print("[skip] No post (rate-limited or error).")
+    authors: set[str] = set()
+    for r in store.records:
+        a = (r.get("author") or "").strip()
+        authors.add(_author_slug(a))
+    authors.add("unknown")
+    created = 0
+    for slug in sorted(authors):
+        path = os.path.join("assets", "authors", slug, "images")
+        try:
+            os.makedirs(path, exist_ok=True)
+            created += 1
+        except Exception:
+            pass
+    print(f"prepared_folders={created}")
 
 
 @app.command("post-cycle")
@@ -604,11 +585,23 @@ def post_cycle(
     tweet_text = lead
     print(tweet_text)
 
-    # Build monochrome image of the quote
+    # Try author image background; fallback to monochrome
     full_quote = f"{quote_text} --- {author}" if author else quote_text
     full_quote = _truncate_to_limit(_sanitize_no_emdash(full_quote), 500)  # allow longer inside image
-    maker = ImageMaker()
-    image_bytes = maker.compose_monochrome_quote(full_quote)
+    maker = ImageMaker(width=1024, height=1024)
+    bg_bytes = _pick_author_image(author)
+    image_bytes = b""
+    if bg_bytes:
+        try:
+            from PIL import Image
+            import io
+            bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB")
+            image_bytes = maker.compose_quote(full_quote, background=bg_img)
+        except Exception as e:
+            print(f"[author-image-error] {type(e).__name__}: {e}")
+            image_bytes = b""
+    if not image_bytes:
+        image_bytes = maker.compose_monochrome_quote(full_quote)
 
     if use_dry_run:
         print("[dry-run] Skipping post.")
