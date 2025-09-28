@@ -470,7 +470,14 @@ def post_cycle(
         text = generator.generate(prompt, preferred_engine=engine)
         tweet = _truncate_to_limit(_sanitize_no_emdash((text or "").strip()), config.max_length)
         if not tweet:
-            print("[error] Empty generation; skipping.")
+            # Resilience: retry with auto, then hard fallback
+            retry = generator.generate(prompt, preferred_engine="auto")
+            tweet = _truncate_to_limit(_sanitize_no_emdash((retry or "").strip()), config.max_length)
+        if not tweet:
+            retry2 = generator.generate(prompt, preferred_engine="fallback")
+            tweet = _truncate_to_limit(_sanitize_no_emdash((retry2 or "").strip()), config.max_length)
+        if not tweet:
+            print("[error] Empty generation after retries; skipping.")
             return
         print(tweet)
         if not use_dry_run:

@@ -112,7 +112,7 @@ jobs:
         run: |
           if [ -n "${PROVIDER_API_KEY}" ] && [ -n "${PROVIDER_BASE_URL}" ] && [ -n "${PROVIDER_MODEL}" ]; then
             if curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null; then
-              echo "ENGINE=provider" >> $GITHUB_ENV
+              echo "ENGINE=auto" >> $GITHUB_ENV
             else
               echo "Provider unreachable at ${PROVIDER_BASE_URL}; falling back to local fallback engine"
               echo "ENGINE=fallback" >> $GITHUB_ENV
@@ -168,7 +168,7 @@ jobs:
         timeout-minutes: 8
         run: |
           set -o pipefail
-          ENGINE_TO_USE=${ENGINE:-provider}
+          ENGINE_TO_USE=${ENGINE:-auto}
           python -m bot post-cycle "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run | tee /tmp/post.log
           echo "--- post output above ---"
 
