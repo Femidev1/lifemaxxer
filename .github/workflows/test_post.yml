@@ -100,7 +100,7 @@ jobs:
             echo "quotes_master.csv not found after ingest; posting will likely skip."
           fi
 
-      - name: Decide mode (3x LLM then 1x quote)
+      - name: Decide mode (3x LLM, 4th CSV; every 10th = image)
         id: decide
         shell: bash
         run: |
@@ -108,11 +108,14 @@ jobs:
           if [ -f "${PATTERN_STATE_PATH}" ]; then
             IDX=$(python -c 'import json,os,pathlib; p=os.getenv("PATTERN_STATE_PATH","pattern_state.json"); f=pathlib.Path(p); print(int(json.load(open(p)).get("index",0)) if f.exists() else 0)')
           fi
-          MOD=$(( IDX % 4 ))
-          if [ "$MOD" -lt 3 ]; then
-            echo "mode=llm" >> $GITHUB_OUTPUT
-          else
+          MOD4=$(( IDX % 4 ))
+          MOD10=$(( IDX % 10 ))
+          if [ "$MOD10" -eq 9 ]; then
+            echo "mode=image" >> $GITHUB_OUTPUT
+          elif [ "$MOD4" -eq 3 ]; then
             echo "mode=quote" >> $GITHUB_OUTPUT
+          else
+            echo "mode=llm" >> $GITHUB_OUTPUT
           fi
 
       - name: Choose prompt for LLM
@@ -148,7 +151,11 @@ jobs:
       - name: Post quote from store (text only)
         if: ${{ steps.decide.outputs.mode == 'quote' }}
         run: |
-          # Every 4th run (mode=quote), post an engagement+image tweet built from a stored quote
+          python -m bot post-quote-text --no-dry-run || echo "post failed (csv/twitter)"
+
+      - name: Post image with engagement (every 10th)
+        if: ${{ steps.decide.outputs.mode == 'image' }}
+        run: |
           python -m bot post-engage-image --no-dry-run || echo "post failed (image/csv/twitter)"
 
       - name: Update pattern state
