@@ -212,15 +212,7 @@ jobs:
         run: |
           if grep -q "\[rate-limit\]" /tmp/post.log 2>/dev/null; then
             echo "Rate limit detected. Entering cooldown..."
-            python - << 'PY'
-            import json, datetime, random
-            now = datetime.datetime.utcnow()
-            hours = random.randint(24,36)
-            until = now + datetime.timedelta(hours=hours)
-            with open('bot_state.json','w') as f:
-                json.dump({'cooldown_until': until.isoformat()+'Z'}, f)
-            print('cooldown_until', until.isoformat()+'Z')
-            PY
+            python -c 'import json,random,datetime as d; now=d.datetime.utcnow(); until=now+d.timedelta(hours=random.randint(24,36)); open("bot_state.json","w").write(json.dumps({"cooldown_until": until.isoformat()+"Z"})); print("cooldown_until", until.isoformat()+"Z")'
             git config user.name "github-actions"
             git config user.email "github-actions@github.com"
             git add bot_state.json
