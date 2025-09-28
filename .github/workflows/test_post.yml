@@ -151,18 +151,15 @@ jobs:
 
       - name: Update pattern state
         run: |
-          python - << 'PY'
-import json,os
-path=os.getenv('PATTERN_STATE_PATH','pattern_state.json')
-try:
-    d=json.load(open(path,'r'))
-except Exception:
-    d={}
-idx=int(d.get('index',0))+1
-d['index']=idx
-open(path,'w').write(json.dumps(d))
-print('index',idx)
-PY
+          python -c 'import json,os; p=os.getenv("PATTERN_STATE_PATH","pattern_state.json");
+          d={};
+          try:
+            d=json.load(open(p,"r"))
+          except Exception:
+            d={}
+          d["index"]=int(d.get("index",0))+1;
+          open(p,"w").write(json.dumps(d));
+          print("index",d["index"])'
 
       - name: Commit pattern state
         run: |
