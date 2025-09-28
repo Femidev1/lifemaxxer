@@ -35,6 +35,8 @@ jobs:
       HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
       QUOTES_STORE_PATH: quotes_master.csv
       CYCLE_STATE_PATH: post_cycle_state.json
+      PATTERN_STATE_PATH: pattern_state.json
+      RECENT_POSTS_PATH: recent_posts.json
       PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
       PROVIDER_BASE_URL: ${{ vars.PROVIDER_BASE_URL }}
       PROVIDER_MODEL: ${{ vars.PROVIDER_MODEL }}
@@ -144,8 +146,27 @@ jobs:
         run: |
           python -m bot init-authors-folders || true
 
-      - name: Choose prompt seed
+      - name: Decide mode (3x LLM, 4th CSV; every 10th = image)
         if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
+        id: mode
+        shell: bash
+        run: |
+          IDX=0
+          if [ -f "${PATTERN_STATE_PATH}" ]; then
+            IDX=$(python -c 'import json,os,pathlib; p=os.getenv("PATTERN_STATE_PATH","pattern_state.json"); f=pathlib.Path(p); print(int(json.load(open(p)).get("index",0)) if f.exists() else 0)')
+          fi
+          MOD4=$(( IDX % 4 ))
+          MOD10=$(( IDX % 10 ))
+          if [ "$MOD10" -eq 9 ]; then
+            echo "mode=image" >> $GITHUB_OUTPUT
+          elif [ "$MOD4" -eq 3 ]; then
+            echo "mode=quote" >> $GITHUB_OUTPUT
+          else
+            echo "mode=llm" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Choose prompt seed (LLM only)
+        if: ${{ steps.mode.outputs.mode == 'llm' }}
         id: choose
         shell: bash
         run: |
@@ -168,27 +189,42 @@ jobs:
           echo "$PROMPT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Post via post-cycle
-        if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
-        timeout-minutes: 8
+      - name: Post LLM motivational
+        if: ${{ steps.mode.outputs.mode == 'llm' }}
         run: |
-          set -o pipefail
           ENGINE_TO_USE=${ENGINE:-auto}
-          python -m bot post-cycle "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run | tee /tmp/post.log
-          echo "--- post output above ---"
+          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run | tee /tmp/post.log
 
-      - name: Commit cycle state and quotes (if changed)
+      - name: Post CSV quote (text only)
+        if: ${{ steps.mode.outputs.mode == 'quote' }}
+        run: |
+          python -m bot post-quote-text --no-dry-run | tee -a /tmp/post.log
+
+      - name: Post engagement image (every 10th)
+        if: ${{ steps.mode.outputs.mode == 'image' }}
+        run: |
+          python -m bot post-engage-image --no-dry-run | tee -a /tmp/post.log
+
+      - name: Update and commit state/files (if changed)
         if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
         run: |
           set -e
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           CHANGED=0
-          if [ -f post_cycle_state.json ]; then
-            if ! git diff --quiet --exit-code -- post_cycle_state.json; then
-              git add post_cycle_state.json
-              CHANGED=1
-            fi
+          # Increment pattern index
+          python -c 'import json,os; p=os.getenv("PATTERN_STATE_PATH","pattern_state.json");
+          d={};
+          try:
+            d=json.load(open(p,"r"))
+          except Exception:
+            d={}
+          d["index"]=int(d.get("index",0))+1;
+          open(p,"w").write(json.dumps(d));
+          print("index",d["index"])'
+          if ! git diff --quiet --exit-code -- "$PATTERN_STATE_PATH"; then
+            git add "$PATTERN_STATE_PATH"
+            CHANGED=1
           fi
           if [ -f quotes_master.csv ]; then
             if ! git diff --quiet --exit-code -- quotes_master.csv; then
@@ -200,8 +236,14 @@ jobs:
             git add assets
             CHANGED=1
           fi
+          if [ -f recent_posts.json ]; then
+            if ! git diff --quiet --exit-code -- recent_posts.json; then
+              git add recent_posts.json
+              CHANGED=1
+            fi
+          fi
           if [ "$CHANGED" = "1" ]; then
-            git commit -m "chore: update post cycle state and quotes [skip ci]" || true
+            git commit -m "chore: update states and assets [skip ci]" || true
             git push || true
           else
             echo "No post state changes to commit."
