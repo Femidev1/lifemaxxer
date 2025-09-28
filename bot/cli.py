@@ -558,22 +558,24 @@ def post_cycle(
 
     idx = _read_cycle_index() % 10
     if idx < 9:
-        # Text-only tweet guided by the provided prompt
-        text = generator.generate(prompt, preferred_engine=engine)
-        tweet = _truncate_to_limit(_sanitize_no_emdash((text or "").strip()), config.max_length)
+        # Text-only tweet sourced from CSV store (avoids duplicates by marking posted)
+        store = QuoteStore()
+        pick = store.pick_for_post(cooldown_days=14)
+        if not pick:
+            print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
+            return
+        text = (pick.get("text") or "").strip()
+        author = (pick.get("author") or "").strip()
+        tweet = f"{text} --- {author}" if author else text
+        tweet = _truncate_to_limit(_sanitize_no_emdash(tweet), config.max_length)
         if not tweet:
-            # Resilience: retry with auto, then hard fallback
-            retry = generator.generate(prompt, preferred_engine="auto")
-            tweet = _truncate_to_limit(_sanitize_no_emdash((retry or "").strip()), config.max_length)
-        if not tweet:
-            retry2 = generator.generate(prompt, preferred_engine="fallback")
-            tweet = _truncate_to_limit(_sanitize_no_emdash((retry2 or "").strip()), config.max_length)
-        if not tweet:
-            print("[error] Empty generation after retries; skipping.")
+            print("[error] Empty quote text.")
             return
         print(tweet)
         if not use_dry_run:
-            twitter.post_tweet(tweet)
+            tweet_id = twitter.post_tweet(tweet)
+            if tweet_id:
+                store.mark_posted(pick)
         _write_cycle_index((idx + 1) % 10)
         return
 
