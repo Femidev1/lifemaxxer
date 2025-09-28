@@ -71,3 +71,23 @@ python -m bot post-text "Hello world"
 ## Notes
 - Posting requires proper app permissions (Read + Write) and a plan with write access.
 - Tweets should be under 280 chars; `MAX_LENGTH` is used to truncate.
+
+## Posting cycle (9 text + 1 image)
+
+- New command: `post-cycle` maintains a 10-slot loop.
+  - Slots 1–9: text-only tweets generated from your prompt seed.
+  - Slot 10: an engagement question (randomly chosen) plus an image rendering of a stored quote in monochrome (black-on-white or white-on-black).
+
+Examples:
+
+```bash
+# Seed guides the style for the nine text tweets
+python -m bot post-cycle "Short blunt tweet about discipline, stoicism, purpose, self-control. No hashtags, no emojis." --engine provider --no-dry-run
+
+# Ingest quotes first for the image cycle
+python -m bot ingest-csv quotes_public_domain_batch2.csv
+```
+
+Notes:
+- Cycle index persists to `post_cycle_state.json` (override with `CYCLE_STATE_PATH`).
+- If no eligible quotes are found for the 10th slot, the command will prompt you to ingest.

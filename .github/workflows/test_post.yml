@@ -34,6 +34,7 @@ jobs:
       HORDE_API_KEY: ${{ secrets.HORDE_API_KEY }}
       HORDE_MODEL: ${{ vars.HORDE_MODEL }}
       HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
+      CYCLE_STATE_PATH: post_cycle_state.json
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -145,11 +146,11 @@ jobs:
           echo "$PROMPT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Post immediately
+      - name: Post via post-cycle
         if: ${{ github.event.inputs.use_stoic != 'true' }}
         run: |
           ENGINE_TO_USE=${ENGINE:-provider}
-          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (empty generation or provider error)"
+          python -m bot post-cycle "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (generation or provider error)"
 
       - name: Post CSV Quote Image now
         if: ${{ github.event.inputs.use_stoic == 'true' }}

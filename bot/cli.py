@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import sys
 from typing import Optional
+import os
+import json
+import random
 
 import typer
 
@@ -39,6 +42,45 @@ def _sanitize_no_emdash(text: str) -> str:
     # Avoid fancy quotes; normalize basic quotes
     sanitized = sanitized.replace("“", '"').replace("”", '"').replace("’", "'")
     return sanitized
+
+
+# Simple state persistence for post-cycle
+def _cycle_state_path() -> str:
+    return os.getenv("CYCLE_STATE_PATH", "post_cycle_state.json")
+
+
+def _read_cycle_index() -> int:
+    path = _cycle_state_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            idx = int(data.get("index", 0))
+            return max(0, idx)
+    except Exception:
+        return 0
+
+
+def _write_cycle_index(idx: int) -> None:
+    path = _cycle_state_path()
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"index": max(0, int(idx))}, f)
+    except Exception:
+        pass
+
+
+ENGAGEMENT_QUESTIONS = [
+    "Do you agree?",
+    "Is this wise?",
+    "What do you think?",
+    "Truth or cope?",
+    "Would you live by this?",
+    "Does this hit or miss?",
+    "Keep or trash?",
+    "Rate it — be honest.",
+    "Solid or soft?",
+    "Does this land?",
+]
 
 
 @app.command()
@@ -401,6 +443,72 @@ def post_quote_image(
         print(f"Posted tweet id: {tweet_id}")
     else:
         print("[skip] No post (rate-limited or error).")
+
+
+@app.command("post-cycle")
+def post_cycle(
+    prompt: str = typer.Argument(..., help="Prompt seed for text tweets (guides the generator)"),
+    dry_run: Optional[bool] = typer.Option(
+        None,
+        "--dry-run/--no-dry-run",
+        help="If set, overrides config default to skip posting or force posting.",
+    ),
+    engine: str = typer.Option("auto", help="Choose generation engine", case_sensitive=False),
+):
+    """Post in a 10-slot cycle: 9 text-only tweets, then 10th is a question + image with a stored quote.
+
+    The cycle index is stored in post_cycle_state.json (configurable via CYCLE_STATE_PATH).
+    """
+    if engine.lower() not in ENGINE_CHOICES:
+        raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
+    config, generator, twitter = _load_components()
+    use_dry_run = config.dry_run_default if dry_run is None else dry_run
+
+    idx = _read_cycle_index() % 10
+    if idx < 9:
+        # Text-only tweet guided by the provided prompt
+        text = generator.generate(prompt, preferred_engine=engine)
+        tweet = _truncate_to_limit(_sanitize_no_emdash((text or "").strip()), config.max_length)
+        if not tweet:
+            print("[error] Empty generation; skipping.")
+            return
+        print(tweet)
+        if not use_dry_run:
+            twitter.post_tweet(tweet)
+        _write_cycle_index((idx + 1) % 10)
+        return
+
+    # 10th slot: engagement question + image quote
+    store = QuoteStore()
+    pick = store.pick_for_post(cooldown_days=14)
+    if not pick:
+        print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
+        return
+    quote_text = (pick.get("text") or "").strip()
+    author = (pick.get("author") or "").strip()
+    question = random.choice(ENGAGEMENT_QUESTIONS)
+    lead = question
+    tweet_text = lead
+    print(tweet_text)
+
+    # Build monochrome image of the quote
+    full_quote = f"{quote_text} --- {author}" if author else quote_text
+    full_quote = _truncate_to_limit(_sanitize_no_emdash(full_quote), 500)  # allow longer inside image
+    maker = ImageMaker()
+    image_bytes = maker.compose_monochrome_quote(full_quote)
+
+    if use_dry_run:
+        print("[dry-run] Skipping post.")
+        _write_cycle_index((idx + 1) % 10)
+        return
+
+    tweet_id = twitter.upload_media_and_post(tweet_text, image_bytes=image_bytes, filename="quote_cycle.jpg")
+    if tweet_id:
+        store.mark_posted(pick)
+        print(f"Posted tweet id: {tweet_id}")
+    else:
+        print("[skip] No post (rate-limited or error).")
+    _write_cycle_index((idx + 1) % 10)
 
 def run():
 	app()

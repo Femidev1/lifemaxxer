@@ -124,4 +124,38 @@ class ImageMaker:
 		bg.save(buf, format="JPEG", quality=92, optimize=True)
 		return buf.getvalue()
 
+	def compose_monochrome_quote(self, text: str, light_mode: bool | None = None) -> bytes:
+		"""Compose the quote on a pure monochrome background.
+
+		If light_mode is True: black text on white background.
+		If False: white text on black background.
+		If None: pick randomly.
+		"""
+		if light_mode is None:
+			light_mode = bool(random.getrandbits(1))
+		bg_color = (255, 255, 255) if light_mode else (0, 0, 0)
+		fg_color = (0, 0, 0) if light_mode else (255, 255, 255)
+		img = Image.new("RGB", (self.width, self.height), bg_color)
+		draw = ImageDraw.Draw(img)
+		try:
+			# Slightly larger font for monochrome poster
+			font = ImageFont.truetype("DejaVuSans.ttf", size=68)
+		except Exception:
+			font = ImageFont.load_default()
+		margin = 100
+		box_width = self.width - margin * 2
+		wrapped = self._wrap_text(draw, text, font, box_width)
+		lines = wrapped.splitlines()
+		line_h = self._measure(draw, "Ag", font)[1] + 12
+		total_h = line_h * max(1, len(lines))
+		y = max((self.height - total_h) // 2, margin)
+		for line in lines:
+			w_px, _ = self._measure(draw, line, font)
+			x = max((self.width - w_px) // 2, margin)
+			draw.text((x, y), line, fill=fg_color, font=font)
+			y += line_h
+		buf = io.BytesIO()
+		img.save(buf, format="JPEG", quality=95, optimize=True)
+		return buf.getvalue()
+
 

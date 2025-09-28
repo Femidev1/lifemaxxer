@@ -34,6 +34,7 @@ jobs:
       HORDE_MODEL: ${{ vars.HORDE_MODEL }}
       HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
       QUOTES_STORE_PATH: quotes_master.csv
+      CYCLE_STATE_PATH: post_cycle_state.json
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -102,6 +103,49 @@ jobs:
         if: ${{ steps.decide.outputs.should_post == 'true' }}
         run: pip install -r requirements.txt
 
+      - name: Configure engine (provider or local Ollama)
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: |
+          if [ -n "${PROVIDER_API_KEY}" ] && [ -n "${PROVIDER_BASE_URL}" ] && [ -n "${PROVIDER_MODEL}" ]; then
+            if curl -sSf -H "Authorization: Bearer ${PROVIDER_API_KEY}" "${PROVIDER_BASE_URL%/}/models" >/dev/null; then
+              echo "ENGINE=provider" >> $GITHUB_ENV
+            else
+              echo "Provider unreachable at ${PROVIDER_BASE_URL}; falling back to runner Ollama"
+              echo "ENGINE=ollama" >> $GITHUB_ENV
+            fi
+          else
+            echo "ENGINE=ollama" >> $GITHUB_ENV
+          fi
+
+      - name: Cache Ollama models
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-models-${{ runner.os }}-qwen2.5-3b-instruct-v1
+          restore-keys: |
+            ollama-models-${{ runner.os }}-
+
+      - name: Install and start Ollama if needed
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: |
+          if [ "${ENGINE}" = "ollama" ]; then
+            if ! command -v ollama >/dev/null 2>&1; then
+              curl -fsSL https://ollama.com/install.sh | sh
+            fi
+            nohup ollama serve >/tmp/ollama.log 2>&1 &
+            sleep 2
+            MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
+            if ollama list | awk '{print $1}' | grep -qx "$MODEL"; then
+              echo "Ollama model '$MODEL' already present; skipping pull."
+            else
+              ollama pull "$MODEL"
+            fi
+            curl -sSf http://127.0.0.1:11434/api/tags >/dev/null
+          else
+            echo "Skipping Ollama install (provider in use)."
+          fi
+
       - name: Ensure master CSV exists
         if: ${{ steps.decide.outputs.should_post == 'true' }}
         run: |
@@ -114,13 +158,74 @@ with open('quotes_master.csv','w',newline='',encoding='utf-8') as f:
 PY
           fi
 
-      - name: Post CSV Quote (image)
+      - name: Ingest CSV quotes (idempotent)
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: |
+          if [ -f quotes_public_domain_batch1.csv ]; then
+            python -m bot ingest-csv quotes_public_domain_batch1.csv --source github || true
+          fi
+          if [ -f quotes_public_domain_batch2.csv ]; then
+            python -m bot ingest-csv quotes_public_domain_batch2.csv --source github || true
+          fi
+
+      - name: Choose prompt seed
         if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
-        timeout-minutes: 6
+        id: choose
+        shell: bash
+        run: |
+          PROMPT=$(python - <<'PY'
+          import random, datetime
+          now = datetime.datetime.utcnow()
+          seed = int(now.strftime("%Y%m%d%H%M%S"))
+          random.seed(seed)
+          prompts = [
+            "Short blunt tweet about discipline, stoicism, purpose, self-control. No hashtags, no emojis.",
+            "Raw, direct one-liner for men about delayed gratification and discipline.",
+            "Harsh truth about purpose over comfort. Be blunt and tight.",
+            "No fluff: one sentence about self-control and restraint.",
+            "Direct reminder: responsibility, courage, restraint. Keep it gritty.",
+          ]
+          print(random.choice(prompts))
+          PY
+          )
+          echo "prompt<<EOF" >> $GITHUB_OUTPUT
+          echo "$PROMPT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post via post-cycle
+        if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
+        timeout-minutes: 8
         run: |
           set -o pipefail
-          python -m bot post-quote-image --no-dry-run | tee /tmp/post.log
+          ENGINE_TO_USE=${ENGINE:-provider}
+          python -m bot post-cycle "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run | tee /tmp/post.log
           echo "--- post output above ---"
+
+      - name: Commit cycle state and quotes (if changed)
+        if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
+        run: |
+          set -e
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          CHANGED=0
+          if [ -f post_cycle_state.json ]; then
+            if ! git diff --quiet --exit-code -- post_cycle_state.json; then
+              git add post_cycle_state.json
+              CHANGED=1
+            fi
+          fi
+          if [ -f quotes_master.csv ]; then
+            if ! git diff --quiet --exit-code -- quotes_master.csv; then
+              git add quotes_master.csv
+              CHANGED=1
+            fi
+          fi
+          if [ "$CHANGED" = "1" ]; then
+            git commit -m "chore: update post cycle state and quotes [skip ci]" || true
+            git push || true
+          else
+            echo "No post state changes to commit."
+          fi
 
       - name: Enter cooldown if rate-limited
         if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}

@@ -4,6 +4,7 @@ set -euo pipefail
 cd "/Users/femidavid/Lifemaxerbot"
 source .venv/bin/activate
 
-PROMPT="Drop a random motivational quote, feel free to look up one on the internet or make some shit up. Also be direct a use some vulgar language"
+# Cycle runner: 9 text tweets then 10th engagement+image
+PROMPT="Short blunt tweet about discipline, stoicism, purpose, self-control. No hashtags, no emojis."
 
-python -m bot post "$PROMPT" --engine ollama --no-dry-run
+python -m bot post-cycle "$PROMPT" --engine ollama --no-dry-run
