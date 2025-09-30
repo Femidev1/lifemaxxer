@@ -84,6 +84,16 @@ jobs:
         run: |
           python -m bot init-authors-folders || true
 
+      - name: Bootstrap pattern state (if missing)
+        run: |
+          if [ ! -f "$PATTERN_STATE_PATH" ]; then
+            echo '{"index": 0}' > "$PATTERN_STATE_PATH"
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add "$PATTERN_STATE_PATH"
+            git commit -m "chore(test): add initial pattern_state.json [skip ci]" || true
+            git push || true
+          fi
       - name: Commit updated quotes_master.csv (if changed)
         run: |
           if [ -f quotes_master.csv ]; then

@@ -146,6 +146,18 @@ jobs:
         run: |
           python -m bot init-authors-folders || true
 
+      - name: Bootstrap pattern state (if missing)
+        if: ${{ steps.decide.outputs.should_post == 'true' }}
+        run: |
+          if [ ! -f "$PATTERN_STATE_PATH" ]; then
+            echo '{"index": 0}' > "$PATTERN_STATE_PATH"
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add "$PATTERN_STATE_PATH"
+            git commit -m "chore: add initial pattern_state.json [skip ci]" || true
+            git push || true
+          fi
+
       - name: Decide mode (3x LLM, 4th CSV; every 10th = image)
         if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
         id: mode
