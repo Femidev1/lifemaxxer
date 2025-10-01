@@ -127,8 +127,14 @@ class QuoteStore:
 				for row in reader:
 					if not row:
 						continue
-					# One-quote-per-line CSVs: take first column as quote text
-					records.append({"text": row[0], "author": ""})
+					# Heuristics: support id,text,author,source rows without headers
+					if len(row) >= 2 and (row[0] or "").strip().isdigit():
+						q = row[1]
+						a = row[2] if len(row) >= 3 else ""
+						records.append({"text": str(q), "author": (a or "").strip()})
+					else:
+						# One-quote-per-line CSVs: take first column as quote text
+						records.append({"text": row[0], "author": ""})
 		return self.ingest_quote_records(records, source or os.path.basename(csv_path))
 
 	def pick_for_post(self, cooldown_days: int = 14) -> Optional[Dict[str, str]]:

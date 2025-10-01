@@ -66,7 +66,7 @@ class ImageMaker:
 		# Draw translucent overlay for readability
 		overlay_h = min(self.height - margin * 2, 800)
 		overlay_top = (self.height - overlay_h) // 2
-		overlay = Image.new("RGBA", (self.width - margin, overlay_h), (0, 0, 0, 90))
+		overlay = Image.new("RGBA", (self.width - margin, overlay_h), (0, 0, 0, 110))
 		img.paste(overlay, (margin // 2, overlay_top), overlay)
 
 		# Draw text centered
