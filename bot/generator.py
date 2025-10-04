@@ -153,12 +153,20 @@ class ContentGenerator:
 			return None
 		# Prefer chat API
 		try:
+			# Add sampling options for variety and a changing seed
+			opts = {
+				"temperature": 0.95,
+				"top_p": 0.92,
+				"repeat_penalty": 1.1,
+				"seed": int(time.time() * 1000) % 2_147_483_647,
+			}
 			chat = self._ollama_client.chat(
 				model=self.config.ollama_model,
 				messages=[
 					{"role": "system", "content": self._tweet_system_prompt()},
 					{"role": "user", "content": prompt.strip()},
 				],
+				options=opts,
 			)
 			# Support object or dict response
 			content = None
@@ -182,6 +190,12 @@ class ContentGenerator:
 					+ prompt.strip()
 					+ "\nAssistant:"
 				),
+				options={
+					"temperature": 0.95,
+					"top_p": 0.92,
+					"repeat_penalty": 1.1,
+					"seed": int(time.time() * 1000) % 2_147_483_647,
+				},
 				stream=False,
 			)
 			text = None
@@ -201,6 +215,9 @@ class ContentGenerator:
 			outputs = self._hf_pipeline(
 				f"{self._tweet_system_prompt()}\nUser: {prompt.strip()}\nAssistant:",
 				max_length=max(40, self.config.max_length),
+				do_sample=True,
+				temperature=0.95,
+				top_p=0.92,
 				num_return_sequences=1,
 			)
 			if not outputs:

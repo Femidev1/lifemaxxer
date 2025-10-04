@@ -127,14 +127,15 @@ class QuoteStore:
 				for row in reader:
 					if not row:
 						continue
-					# Heuristics: support id,text,author,source rows without headers
-					if len(row) >= 2 and (row[0] or "").strip().isdigit():
-						q = row[1]
-						a = row[2] if len(row) >= 3 else ""
-						records.append({"text": str(q), "author": (a or "").strip()})
+					# Heuristics for common formats without headers
+					# Case A: [id, text, author, ...]
+					if len(row) >= 2 and str(row[0]).strip().isdigit():
+						text = str(row[1]).strip()
+						author = str(row[2]).strip() if len(row) >= 3 else ""
+						records.append({"text": text, "author": author})
 					else:
-						# One-quote-per-line CSVs: take first column as quote text
-						records.append({"text": row[0], "author": ""})
+						# Case B: one-quote-per-line CSVs: take first column as quote text
+						records.append({"text": str(row[0]).strip(), "author": ""})
 		return self.ingest_quote_records(records, source or os.path.basename(csv_path))
 
 	def pick_for_post(self, cooldown_days: int = 14) -> Optional[Dict[str, str]]:
@@ -143,6 +144,10 @@ class QuoteStore:
 		eligible: List[Dict[str, str]] = []
 		for r in self.records:
 			lp = r.get("last_posted_at") or ""
+			# Skip obviously bad records (e.g., numeric-only or too short texts from malformed CSVs)
+			txt = (r.get("text") or "").strip()
+			if not txt or txt.isdigit() or len(txt) < 5:
+				continue
 			if not lp:
 				eligible.append(r)
 				continue
