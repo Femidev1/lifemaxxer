@@ -8,5 +8,5 @@ Pillow>=10.4.0,<11
 
 # Optional generators (install if needed)
 ollama>=0.3.3,<1
-# transformers is large; install only if you want HF local gen
-# transformers>=4.43.3,<5
+transformers>=4.43.3,<5
+torch>=2.5.1,<3
