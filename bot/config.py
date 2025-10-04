@@ -50,7 +50,7 @@ class AppConfig(BaseModel):
 			provider_base_url=os.getenv("PROVIDER_BASE_URL"),
 			provider_model=os.getenv("PROVIDER_MODEL"),
 			ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct"),
-			hf_model=os.getenv("HF_MODEL"),
+			hf_model=os.getenv("HF_MODEL", "Qwen/Qwen2.5-1.5B-Instruct"),
 			max_length=int(os.getenv("MAX_LENGTH", "220")),
 			dry_run_default=os.getenv("DRY_RUN_DEFAULT", "true").lower() == "true",
 			twitter_wait_on_rate_limit=os.getenv("TWITTER_WAIT_ON_RATE_LIMIT", "false").lower() == "true",
