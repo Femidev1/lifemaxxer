@@ -262,6 +262,29 @@ class ContentGenerator:
 		lc = clean.lower()
 		if not lc.startswith("did you know "):
 			clean = prefix + clean.lstrip("-•* ")
+		# Fix duplicate prefix like "Did you know did you know ..."
+		lc = clean.lower()
+		dup = "did you know did you know "
+		if lc.startswith(dup):
+			clean = prefix + clean[len(prefix) + len("Did you know ") :].lstrip()
+		# Normalize body: strip leading connectors like "that", extra "did", punctuation
+		body = clean[len(prefix):]
+		try:
+			import re
+			# remove leading "that" with optional punctuation/spaces
+			body = re.sub(r"^(?i:that)[\s:,-]+", "", body)
+			# remove accidental leading "did "
+			body = re.sub(r"^(?i:did)\s+", "", body)
+			# trim leading punctuation/spaces
+			body = re.sub(r"^[\s:;,.\-–—]+", "", body)
+		except Exception:
+			# Fallback simple trims
+			if body.lower().startswith("that "):
+				body = body[5:]
+			if body.lower().startswith("did "):
+				body = body[4:]
+			body = body.lstrip(" :;,.\-–—")
+		clean = prefix + body
 		# Ensure ending punctuation
 		if not clean.endswith((".", "?")):
 			clean = clean.rstrip() + "."
