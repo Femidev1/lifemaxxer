@@ -1,4 +1,4 @@
-name: Post to X randomly 17/day
+name: Post interesting facts 17/day
 
 on:
   workflow_dispatch:
@@ -30,12 +30,6 @@ jobs:
       MAX_LENGTH: 220
       DRY_RUN_DEFAULT: 'false'
       TWITTER_WAIT_ON_RATE_LIMIT: 'true'
-      HORDE_API_KEY: ${{ secrets.HORDE_API_KEY }}
-      HORDE_MODEL: ${{ vars.HORDE_MODEL }}
-      HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
-      QUOTES_STORE_PATH: quotes_master.csv
-      CYCLE_STATE_PATH: post_cycle_state.json
-      PATTERN_STATE_PATH: pattern_state.json
       RECENT_POSTS_PATH: recent_posts.json
       PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
       PROVIDER_BASE_URL: ${{ vars.PROVIDER_BASE_URL }}
@@ -131,99 +125,11 @@ jobs:
             pip install transformers torch
           fi
 
-      - name: Ensure master CSV exists
-        if: ${{ steps.decide.outputs.should_post == 'true' }}
-        run: |
-          if [ ! -f quotes_master.csv ]; then
-            echo "Initializing empty quotes_master.csv"
-            printf "id,text,author,source,added_at,last_posted_at,times_posted\n" > quotes_master.csv
-          fi
-
-      - name: Ingest CSV quotes (idempotent)
-        if: ${{ steps.decide.outputs.should_post == 'true' }}
-        run: |
-          if [ -f quotes_public_domain_batch1.csv ]; then
-            python -m bot ingest-csv quotes_public_domain_batch1.csv --source github || true
-          fi
-          if [ -f quotes_public_domain_batch2.csv ]; then
-            python -m bot ingest-csv quotes_public_domain_batch2.csv --source github || true
-          fi
-
-      - name: Initialize author asset folders
-        if: ${{ steps.decide.outputs.should_post == 'true' }}
-        run: |
-          python -m bot init-authors-folders || true
-
-      - name: Bootstrap pattern state (if missing)
-        if: ${{ steps.decide.outputs.should_post == 'true' }}
-        run: |
-          if [ ! -f "$PATTERN_STATE_PATH" ]; then
-            echo '{"index": 0}' > "$PATTERN_STATE_PATH"
-            git config user.name "github-actions"
-            git config user.email "github-actions@github.com"
-            git add "$PATTERN_STATE_PATH"
-            git commit -m "chore: add initial pattern_state.json [skip ci]" || true
-            git push || true
-          fi
-
-      - name: Decide mode (3x LLM, 4th CSV; every 10th = image)
+      - name: Post a fact
         if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
-        id: mode
-        shell: bash
-        run: |
-          IDX=0
-          if [ -f "${PATTERN_STATE_PATH}" ]; then
-            IDX=$(python -c 'import json,os,pathlib; p=os.getenv("PATTERN_STATE_PATH","pattern_state.json"); f=pathlib.Path(p); print(int(json.load(open(p)).get("index",0)) if f.exists() else 0)')
-          fi
-          MOD4=$(( IDX % 4 ))
-          MOD10=$(( IDX % 10 ))
-          if [ "$MOD10" -eq 9 ]; then
-            echo "mode=image" >> $GITHUB_OUTPUT
-          elif [ "$MOD4" -eq 3 ]; then
-            echo "mode=quote" >> $GITHUB_OUTPUT
-          else
-            echo "mode=llm" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Choose prompt seed (LLM only)
-        if: ${{ steps.mode.outputs.mode == 'llm' }}
-        id: choose
-        shell: bash
-        run: |
-          PROMPT=$(python - <<'PY'
-          import random, datetime
-          now = datetime.datetime.utcnow()
-          seed = int(now.strftime("%Y%m%d%H%M%S"))
-          random.seed(seed)
-          prompts = [
-            "Short blunt tweet about discipline, stoicism, purpose, self-control. No hashtags, no emojis.",
-            "Raw, direct one-liner for men about delayed gratification and discipline.",
-            "Harsh truth about purpose over comfort. Be blunt and tight.",
-            "No fluff: one sentence about self-control and restraint.",
-            "Direct reminder: responsibility, courage, restraint. Keep it gritty.",
-          ]
-          print(random.choice(prompts))
-          PY
-          )
-          echo "prompt<<EOF" >> $GITHUB_OUTPUT
-          echo "$PROMPT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Post LLM motivational
-        if: ${{ steps.mode.outputs.mode == 'llm' }}
         run: |
           ENGINE_TO_USE=${ENGINE:-auto}
-          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run | tee /tmp/post.log
-
-      - name: Post CSV quote (text only)
-        if: ${{ steps.mode.outputs.mode == 'quote' }}
-        run: |
-          python -m bot post-quote-text --no-dry-run | tee -a /tmp/post.log
-
-      - name: Post engagement image (every 10th)
-        if: ${{ steps.mode.outputs.mode == 'image' }}
-        run: |
-          python -m bot post-engage-image --no-dry-run | tee -a /tmp/post.log
+          python -m bot post-fact --engine "$ENGINE_TO_USE" --no-dry-run | tee /tmp/post.log
 
       - name: Update and commit state/files (if changed)
         if: ${{ steps.decide.outputs.should_post == 'true' && steps.cooldown.outputs.skip_due_to_cooldown != 'true' }}
@@ -232,30 +138,7 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           CHANGED=0
-          # Increment pattern index
-          python -c 'import json,os; p=os.getenv("PATTERN_STATE_PATH","pattern_state.json");
-          d={};
-          try:
-            d=json.load(open(p,"r"))
-          except Exception:
-            d={}
-          d["index"]=int(d.get("index",0))+1;
-          open(p,"w").write(json.dumps(d));
-          print("index",d["index"])'
-          if ! git diff --quiet --exit-code -- "$PATTERN_STATE_PATH"; then
-            git add "$PATTERN_STATE_PATH"
-            CHANGED=1
-          fi
-          if [ -f quotes_master.csv ]; then
-            if ! git diff --quiet --exit-code -- quotes_master.csv; then
-              git add quotes_master.csv
-              CHANGED=1
-            fi
-          fi
-          if ! git diff --quiet --exit-code -- assets; then
-            git add assets
-            CHANGED=1
-          fi
+          # No more pattern or CSV updates
           if [ -f recent_posts.json ]; then
             if ! git diff --quiet --exit-code -- recent_posts.json; then
               git add recent_posts.json

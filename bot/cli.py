@@ -11,12 +11,6 @@ import typer
 from .config import AppConfig
 from .generator import ContentGenerator
 from .twitter_client import TwitterClient
-from .stoic_client import StoicClient
-from .image_maker import ImageMaker
-from .ai_image_client import AIImageClient
-from .sources import fetch_quote_rotating
-from .image_prompt import build_sdxl_prompt
-from .quote_store import QuoteStore
 from filelock import FileLock
 
 
@@ -149,7 +143,7 @@ def _sanitize_no_emdash(text: str) -> str:
     return sanitized
 
 
-# Simple state persistence for post-cycle
+# Legacy state (kept for compatibility of recent cache only)
 def _cycle_state_path() -> str:
     return os.getenv("CYCLE_STATE_PATH", "post_cycle_state.json")
 
@@ -176,18 +170,7 @@ def _write_cycle_index(idx: int) -> None:
         pass
 
 
-ENGAGEMENT_QUESTIONS = [
-    "Do you agree?",
-    "Is this wise?",
-    "What do you think?",
-    "Truth or cope?",
-    "Would you live by this?",
-    "Does this hit or miss?",
-    "Keep or trash?",
-    "Rate it — be honest.",
-    "Solid or soft?",
-    "Does this land?",
-]
+ENGAGEMENT_QUESTIONS = []
 
 
 # Recent LLM posts cache to avoid duplicate tweets
@@ -224,62 +207,10 @@ def _post_with_media_or_text(twitter: TwitterClient, text: str, image_bytes: Opt
 	return twitter.post_tweet(text)
 
 
-@app.command()
-def generate(
-	prompt: str = typer.Argument(..., help="Prompt for content generation"),
-	max_length: Optional[int] = typer.Option(None, help="Override max length for this run"),
-	engine: str = typer.Option("auto", help="Choose generation engine", case_sensitive=False),
-):
-	"""Generate tweet content and print to stdout."""
-	if engine.lower() not in ENGINE_CHOICES:
-		raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
-	config, generator, _ = _load_components()
-	if max_length is not None:
-		config.max_length = max_length
-	text = generator.generate(prompt, preferred_engine=engine)
-	print(text)
+# removed generic generate; use generate-fact instead
 
 
-@app.command()
-def post(
-	prompt: str = typer.Argument(..., help="Prompt for content generation"),
-	dry_run: Optional[bool] = typer.Option(
-		None,
-		"--dry-run/--no-dry-run",
-		help="If set, overrides config default to skip posting or force posting.",
-	),
-	engine: str = typer.Option("auto", help="Choose generation engine", case_sensitive=False),
-):
-	"""Generate and post a tweet. Prints tweet text and the tweet id if posted."""
-	if engine.lower() not in ENGINE_CHOICES:
-		raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
-	config, generator, twitter = _load_components()
-	use_dry_run = config.dry_run_default if dry_run is None else dry_run
-	text = generator.generate(prompt, preferred_engine=engine)
-	# If provider/engine yields empty or repeats, retry with minor jitter and ensure not in recent cache
-	recent = set(_read_recent_posts())
-	attempts = 0
-	while (not text or text.strip() in recent) and attempts < 3:
-		# add tiny randomness to reduce identical outputs
-		jitter = "\nAdd one subtle variation in phrasing; keep content and tone identical."
-		text = generator.generate(prompt + jitter, preferred_engine="auto")
-		attempts += 1
-	if not text:
-		print("[error] Empty generation result; not posting.")
-		return
-	print(text)
-	if use_dry_run:
-		print("[dry-run] Skipping post.")
-		return
-	tweet_id = twitter.post_tweet(text)
-	if tweet_id:
-		print(f"Posted tweet id: {tweet_id}")
-		# update recent cache
-		cache = _read_recent_posts()
-		cache.append(text.strip())
-		_write_recent_posts(cache)
-	else:
-		print("[skip] No post (rate-limited or error).")
+# removed generic post; use post-fact instead
 
 
 @app.command("post-text")
@@ -323,41 +254,41 @@ def health():
 	print(f"config: {status}")
 
 
-@app.command("post-stoic")
-def post_stoic(
+@app.command("generate-fact")
+def generate_fact(
+    subject: Optional[str] = typer.Argument(None, help="Optional subject for the fact"),
+    max_length: Optional[int] = typer.Option(None, help="Override max length for this run"),
+    engine: str = typer.Option("auto", help="Choose generation engine", case_sensitive=False),
+):
+    """Generate a single 'Did you know ...' fact and print to stdout."""
+    if engine.lower() not in ENGINE_CHOICES:
+        raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
+    config, generator, _ = _load_components()
+    if max_length is not None:
+        config.max_length = max_length
+    prompt = subject.strip() if subject else "Make up any interesting fact."
+    text = generator.generate(prompt, preferred_engine=engine)
+    print(_truncate_to_limit(_sanitize_no_emdash(text), config.max_length))
+
+
+@app.command("post-fact")
+def post_fact(
     dry_run: Optional[bool] = typer.Option(
         None,
         "--dry-run/--no-dry-run",
         help="If set, overrides config default to skip posting or force posting.",
     ),
-    engine: str = typer.Option("auto", help="Choose generation engine for rephrasing", case_sensitive=False),
-    rephrase: bool = typer.Option(True, "--rephrase/--no-rephrase", help="Use AI to paraphrase/reword the quote"),
+    engine: str = typer.Option("auto", help="Choose generation engine", case_sensitive=False),
+    subject: Optional[str] = typer.Argument(None, help="Optional subject for the fact"),
 ):
-    """Fetch a Stoic quote, optionally rephrase into bot style, and post it."""
+    """Generate and post a 'Did you know ...' fact."""
     if engine.lower() not in ENGINE_CHOICES:
         raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
     config, generator, twitter = _load_components()
     use_dry_run = config.dry_run_default if dry_run is None else dry_run
-    stoic = StoicClient()
-    result = stoic.fetch_quote()
-    if not result:
-        print("[error] Failed to fetch stoic quote.")
-        return
-    text, _author = result
-    # Always ignore attribution per requirements
-    text = _sanitize_no_emdash(text)
-    candidate = text
-    if rephrase:
-        # Ask the generator to paraphrase into one short blunt tweet with constraints
-        prompt = (
-            "Paraphrase the following Stoic idea into ONE short tweet. "
-            "No hashtags, no emojis, no quotes or attribution, no em dashes. "
-            "Tone: raw, direct, confident, no fluff. Under 200 characters.\n\n"
-            f"Idea: {text}"
-        )
-        ai_text = generator.generate(prompt, preferred_engine=engine)
-        candidate = ai_text.strip() or text
-    tweet = _truncate_to_limit(_sanitize_no_emdash(candidate).strip(), config.max_length)
+    base = subject.strip() if subject else "Make up any interesting fact."
+    text = generator.generate(base, preferred_engine=engine)
+    tweet = _truncate_to_limit(_sanitize_no_emdash((text or '').strip()), config.max_length)
     print(tweet)
     if use_dry_run:
         print("[dry-run] Skipping post.")
@@ -380,67 +311,8 @@ def post_stoic_image(
     rephrase: bool = typer.Option(True, "--rephrase/--no-rephrase", help="Use AI to paraphrase/reword the quote"),
     ai_image: bool = typer.Option(True, "--ai-image/--no-ai-image", help="Generate background with AI Horde when possible"),
 ):
-    """Fetch a Stoic quote, rephrase, render to image, and post as an image tweet."""
-    if engine.lower() not in ENGINE_CHOICES:
-        raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
-    config, generator, twitter = _load_components()
-    use_dry_run = config.dry_run_default if dry_run is None else dry_run
-    stoic = StoicClient()
-    result = stoic.fetch_quote()
-    if not result:
-        print("[error] Failed to fetch stoic quote.")
-        return
-    text, _author = result
-    text = _sanitize_no_emdash(text)
-    candidate = text
-    if rephrase:
-        prompt = (
-            "Paraphrase the following Stoic idea into ONE short tweet. "
-            "No hashtags, no emojis, no quotes or attribution, no em dashes. "
-            "Tone: raw, direct, confident, no fluff. Under 200 characters.\n\n"
-            f"Idea: {text}"
-        )
-        ai_text = generator.generate(prompt, preferred_engine=engine)
-        candidate = ai_text.strip() or text
-    tweet = _truncate_to_limit(_sanitize_no_emdash(candidate).strip(), config.max_length)
-    print(tweet)
-    # Generate image from the tweet text
-    maker = ImageMaker()
-    image_bytes = b""
-    # Try AI Horde generation for a custom background
-    if ai_image:
-        try:
-            ai = AIImageClient(config)
-            # Build SDXL prompt using deterministic template
-            vis_prompt = build_sdxl_prompt(generator, tweet, engine)
-            neg = config.horde_negative_prompt or (
-                "text, watermark, signature, logo, blurry, lowres, artifacts, deformed, extra fingers, bad anatomy"
-            )
-            models = [config.horde_model] if config.horde_model else ["SDXL 1.0"]
-            bg_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=28, negative_prompt=neg, models=models)
-            if bg_bytes:
-                from PIL import Image
-                import io
-                bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((1080, 1080))
-                image_bytes = maker.compose_quote(tweet, background=bg_img)
-        except Exception as e:
-            print(f"[ai-image-error] {type(e).__name__}: {e}")
-            image_bytes = b""
-    # Fallback to free background if AI image not available
-    if not image_bytes:
-        try:
-            image_bytes = maker.compose_quote(tweet)
-        except Exception as e:
-            print(f"[image-error] {type(e).__name__}: {e}")
-            image_bytes = b""
-    if use_dry_run:
-        print("[dry-run] Skipping post.")
-        return
-    tweet_id = _post_with_media_or_text(twitter, tweet, image_bytes=image_bytes, filename="stoic.jpg")
-    if tweet_id:
-        print(f"Posted tweet id: {tweet_id}")
-    else:
-        print("[skip] No post (rate-limited or error).")
+    """Deprecated in fact-only mode."""
+    print("This command has been removed. Use 'post-fact' instead.")
 
 
 @app.command("post-auto-image")
@@ -452,68 +324,8 @@ def post_auto_image(
     ),
     engine: str = typer.Option("auto", help="Choose generation engine for rewriting/prompts", case_sensitive=False),
 ):
-    """Fetch source material, rewrite to a short tweet, generate SDXL image, and post."""
-    if engine.lower() not in ENGINE_CHOICES:
-        raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
-    config, generator, twitter = _load_components()
-    use_dry_run = config.dry_run_default if dry_run is None else dry_run
-
-    # 0) Ensure quote store exists and ingest APIs if desired (optional external call elsewhere)
-    store = QuoteStore()
-
-    # 1) Fetch source (prefer stored quotes; fallback to APIs)
-    pick = store.pick_for_post(cooldown_days=14)
-    raw = (pick or {}).get("text") if pick else None
-    if not raw:
-        raw = fetch_quote_rotating()
-    if not raw:
-        print("[error] No source quote found.")
-        return
-
-    # 2) Rewrite short tweet
-    rewrite_prompt = (
-        "Rewrite into ONE short tweet under 140 chars. "
-        "No emojis, no hashtags, no quotes, no attribution, no AI phrasing. "
-        "Tone: raw, direct, confident. Themes: masculinity, stoicism, discipline, purpose, self-control.\n\n"
-        f"Source: {raw}"
-    )
-    candidate = generator.generate(rewrite_prompt, preferred_engine=engine)
-    tweet = _truncate_to_limit(_sanitize_no_emdash((candidate or "").strip()), config.max_length)
-    if not tweet:
-        print("[error] Empty rewrite.")
-        return
-
-    # 3) Build SDXL prompt via LLM
-    vis_prompt = build_sdxl_prompt(generator, tweet, engine)
-    if not vis_prompt:
-        vis_prompt = "dark moody minimalist stoic poster, greek marble statue, dramatic shadows, no text"
-
-    # 4) Generate image (Stable Horde SDXL)
-    ai = AIImageClient(config)
-    neg = config.horde_negative_prompt or "text, watermark, signature, logo, blurry, lowres, artifacts, deformed, extra fingers, bad anatomy"
-    models = [config.horde_model] if config.horde_model else ["SDXL 1.0"]
-    img_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=32, negative_prompt=neg, models=models)
-
-    # 5) Fallback to local composition if needed
-    maker = ImageMaker()
-    if not img_bytes:
-        img_bytes = maker.compose_duotone_text(tweet)
-    # Light upscale/sharpen
-    img_bytes = maker.upscale_bytes(img_bytes, max_side=1400, sharpen=True)
-
-    print(tweet)
-    if use_dry_run:
-        print("[dry-run] Skipping post.")
-        return
-
-    tweet_id = _post_with_media_or_text(twitter, tweet, image_bytes=img_bytes, filename="auto.jpg")
-    # Mark posted if we used a stored quote
-    if tweet_id and pick:
-        store.mark_posted(pick)
-    if tweet_id:
-        print(f"Posted tweet id: {tweet_id}")
-    else:
-        print("[skip] No post (rate-limited or error).")
+    """Deprecated in fact-only mode."""
+    print("This command has been removed. Use 'post-fact' instead.")
 
 
 @app.command("ingest-csv")
@@ -521,23 +333,14 @@ def ingest_csv(
     path: str = typer.Argument(..., help="Path to CSV with one quote per line"),
     source: Optional[str] = typer.Option(None, help="Source label for these quotes"),
 ):
-    store = QuoteStore()
-    result = store.ingest_csv_file(path, source=source)
-    print(f"added={result['added']} duplicates={result['duplicates']}")
+    print("This command has been removed. Not applicable in fact-only mode.")
 
 
 @app.command("ingest-apis")
 def ingest_apis(
     count: int = typer.Option(10, help="How many quotes to fetch from APIs"),
 ):
-    store = QuoteStore()
-    quotes = []
-    for _ in range(count):
-        q = fetch_quote_rotating()
-        if q:
-            quotes.append(q)
-    result = store.ingest_quotes(quotes, source="apis")
-    print(f"added={result['added']} duplicates={result['duplicates']}")
+    print("This command has been removed. Not applicable in fact-only mode.")
 
 
 @app.command("post-quote-image")
@@ -548,42 +351,8 @@ def post_quote_image(
         help="If set, overrides config default to skip posting or force posting.",
     ),
 ):
-    """Post a quote from the CSV store with image; no AI rewriting."""
-    config, _generator, twitter = _load_components()
-    use_dry_run = config.dry_run_default if dry_run is None else dry_run
-    store = QuoteStore()
-    pick = store.pick_for_post(cooldown_days=14)
-    if not pick:
-        print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
-        return
-    text = (pick.get("text") or "").strip()
-    author = (pick.get("author") or "").strip()
-    tweet = f"{text} --- {author}" if author else text
-    tweet = _truncate_to_limit(_sanitize_no_emdash(tweet), config.max_length)
-    if not tweet:
-        print("[error] Empty quote text.")
-        return
-    print(tweet)
-    # Build image prompt purely from content
-    vis_prompt = build_sdxl_prompt(None, tweet, "fallback")  # templates only
-    ai = AIImageClient(config)
-    neg = config.horde_negative_prompt or "text, watermark, signature, logo, blurry, lowres, artifacts, deformed, extra fingers, bad anatomy"
-    models = [config.horde_model] if config.horde_model else ["SDXL 1.0"]
-    img_bytes = ai.generate(prompt=vis_prompt, width=1024, height=1024, steps=32, negative_prompt=neg, models=models)
-    # Fallback duotone
-    maker = ImageMaker()
-    if not img_bytes:
-        img_bytes = maker.compose_duotone_text(tweet)
-    img_bytes = maker.upscale_bytes(img_bytes, max_side=1400, sharpen=True)
-    if use_dry_run:
-        print("[dry-run] Skipping post.")
-        return
-    tweet_id = _post_with_media_or_text(twitter, tweet, image_bytes=img_bytes, filename="quote.jpg")
-    if tweet_id:
-        store.mark_posted(pick)
-        print(f"Posted tweet id: {tweet_id}")
-    else:
-        print("[skip] No post (rate-limited or error).")
+    """Deprecated in fact-only mode."""
+    print("This command has been removed. Use 'post-fact' instead.")
 
 
 @app.command("post-quote-text")
@@ -594,56 +363,13 @@ def post_quote_text(
         help="If set, overrides config default to skip posting or force posting.",
     ),
 ):
-    """Post a quote from the CSV store as plain text in the format: quote --- author."""
-    config, _generator, twitter = _load_components()
-    use_dry_run = config.dry_run_default if dry_run is None else dry_run
-    store = QuoteStore()
-    pick = store.pick_for_post(cooldown_days=14)
-    if not pick:
-        print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
-        return
-    text = (pick.get("text") or "").strip()
-    author = (pick.get("author") or "").strip()
-    tweet = f"{text} --- {author}" if author else text
-    tweet = _truncate_to_limit(_sanitize_no_emdash(tweet), config.max_length)
-    if not tweet:
-        print("[error] Empty quote text.")
-        return
-    print(tweet)
-    if use_dry_run:
-        print("[dry-run] Skipping post.")
-        return
-    tweet_id = twitter.post_tweet(tweet)
-    if tweet_id:
-        store.mark_posted(pick)
-        print(f"Posted tweet id: {tweet_id}")
-    else:
-        print("[skip] No post (rate-limited or error).")
+    """Deprecated in fact-only mode."""
+    print("This command has been removed. Use 'post-fact' instead.")
 
 
 @app.command("init-authors-folders")
 def init_authors_folders():
-    """Create `assets/authors/<slug>/images` folders for all authors in the store (including unknown)."""
-    store = QuoteStore()
-    authors: set[str] = set()
-    for r in store.records:
-        a = (r.get("author") or "").strip()
-        authors.add(_author_slug(a))
-    authors.add("unknown")
-    created = 0
-    for slug in sorted(authors):
-        path = os.path.join("assets", "authors", slug, "images")
-        try:
-            os.makedirs(path, exist_ok=True)
-            # ensure Git can track empty dirs
-            keep = os.path.join(path, ".gitkeep")
-            if not os.path.exists(keep):
-                with open(keep, "w", encoding="utf-8") as f:
-                    f.write("")
-            created += 1
-        except Exception:
-            pass
-    print(f"prepared_folders={created}")
+    print("This command has been removed. Not applicable in fact-only mode.")
 
 
 @app.command("post-cycle")
@@ -656,81 +382,8 @@ def post_cycle(
     ),
     engine: str = typer.Option("auto", help="Choose generation engine", case_sensitive=False),
 ):
-    """Post in a 10-slot cycle: 9 text-only tweets, then 10th is a question + image with a stored quote.
-
-    The cycle index is stored in post_cycle_state.json (configurable via CYCLE_STATE_PATH).
-    """
-    if engine.lower() not in ENGINE_CHOICES:
-        raise typer.BadParameter(f"engine must be one of: {', '.join(ENGINE_CHOICES)}")
-    config, generator, twitter = _load_components()
-    use_dry_run = config.dry_run_default if dry_run is None else dry_run
-
-    idx = _read_cycle_index() % 10
-    if idx < 9:
-        # Text-only tweet sourced from CSV store (avoids duplicates by marking posted)
-        store = QuoteStore()
-        pick = store.pick_for_post(cooldown_days=14)
-        if not pick:
-            print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
-            return
-        text = (pick.get("text") or "").strip()
-        author = (pick.get("author") or "").strip()
-        tweet = f"{text} --- {author}" if author else text
-        tweet = _truncate_to_limit(_sanitize_no_emdash(tweet), config.max_length)
-        if not tweet:
-            print("[error] Empty quote text.")
-            return
-        print(tweet)
-        if not use_dry_run:
-            tweet_id = twitter.post_tweet(tweet)
-            if tweet_id:
-                store.mark_posted(pick)
-        _write_cycle_index((idx + 1) % 10)
-        return
-
-    # 10th slot: engagement question + image quote
-    store = QuoteStore()
-    pick = store.pick_for_post(cooldown_days=14)
-    if not pick:
-        print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
-        return
-    quote_text = (pick.get("text") or "").strip()
-    author = (pick.get("author") or "").strip()
-    question = random.choice(ENGAGEMENT_QUESTIONS)
-    lead = question
-    tweet_text = lead
-    print(tweet_text)
-
-    # Try author image background; fallback to monochrome
-    full_quote = f"{quote_text} --- {author}" if author else quote_text
-    full_quote = _truncate_to_limit(_sanitize_no_emdash(full_quote), 500)  # allow longer inside image
-    maker = ImageMaker(width=1024, height=1024)
-    bg_bytes = _pick_author_image(author)
-    image_bytes = b""
-    if bg_bytes:
-        try:
-            from PIL import Image
-            import io
-            bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB")
-            image_bytes = maker.compose_quote(full_quote, background=bg_img)
-        except Exception as e:
-            print(f"[author-image-error] {type(e).__name__}: {e}")
-            image_bytes = b""
-    if not image_bytes:
-        image_bytes = maker.compose_monochrome_quote(full_quote)
-
-    if use_dry_run:
-        print("[dry-run] Skipping post.")
-        _write_cycle_index((idx + 1) % 10)
-        return
-
-    tweet_id = twitter.upload_media_and_post(tweet_text, image_bytes=image_bytes, filename="quote_cycle.jpg")
-    if tweet_id:
-        store.mark_posted(pick)
-        print(f"Posted tweet id: {tweet_id}")
-    else:
-        print("[skip] No post (rate-limited or error).")
-    _write_cycle_index((idx + 1) % 10)
+    """Deprecated in fact-only mode."""
+    print("This command has been removed. Use 'post-fact' instead.")
 
 
 @app.command("post-engage-image")
@@ -741,45 +394,8 @@ def post_engage_image(
         help="If set, overrides config default to skip posting or force posting.",
     ),
 ):
-    """Post engagement text + image built from a quote (author image overlay if available)."""
-    config, _generator, twitter = _load_components()
-    use_dry_run = config.dry_run_default if dry_run is None else dry_run
-    store = QuoteStore()
-    pick = store.pick_for_post(cooldown_days=14)
-    if not pick:
-        print(f"[error] No eligible quotes in store. Ingest CSV or APIs first. count={store.count()}")
-        return
-    quote_text = (pick.get("text") or "").strip()
-    author = (pick.get("author") or "").strip()
-    tweet_text = random.choice(ENGAGEMENT_QUESTIONS)
-    print(tweet_text)
-
-    full_quote = f"{quote_text} --- {author}" if author else quote_text
-    full_quote = _truncate_to_limit(_sanitize_no_emdash(full_quote), 500)
-    maker = ImageMaker(width=1024, height=1024)
-    bg_bytes = _pick_author_image(author)
-    image_bytes = b""
-    if bg_bytes:
-        try:
-            from PIL import Image
-            import io
-            bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB")
-            image_bytes = maker.compose_quote(full_quote, background=bg_img)
-        except Exception as e:
-            print(f"[author-image-error] {type(e).__name__}: {e}")
-            image_bytes = b""
-    if not image_bytes:
-        image_bytes = maker.compose_monochrome_quote(full_quote)
-
-    if use_dry_run:
-        print("[dry-run] Skipping post.")
-        return
-    tweet_id = _post_with_media_or_text(twitter, tweet_text, image_bytes=image_bytes, filename="engage.jpg")
-    if tweet_id:
-        store.mark_posted(pick)
-        print(f"Posted tweet id: {tweet_id}")
-    else:
-        print("[skip] No post (rate-limited or error).")
+    """Deprecated in fact-only mode."""
+    print("This command has been removed. Use 'post-fact' instead.")
 
 
 def run():

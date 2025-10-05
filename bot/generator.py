@@ -81,14 +81,13 @@ class ContentGenerator:
 			return self._truncate(text)
 		return self._truncate(self._fallback(prompt))
 
-	def _tweet_system_prompt(self) -> str:
+	def _fact_system_prompt(self) -> str:
 		return (
-			"You are a social media copywriter for a blunt red pill style account. "
-			"Write ONE tweet under 240 characters. Tone: raw, direct, confident, no fluff. "
-			"Profanity may appear (fuck, shit, damn) but ABSOLUTELY NO hate speech, slurs, threats, or demeaning groups. "
-			"Themes: masculinity, women and dating dynamics, purpose, goals, growth, discipline. "
-			"Keep it short, blunt, and direct. One sentence only. No em dashes; use plain sentences. "
-			"No hashtags, no emojis, no disclaimers, no quotes from you about being an AI."
+			"You generate a single interesting fact in one sentence. "
+			"The output MUST begin with 'Did you know ' and end with a period or a question mark. "
+			"Keep it under 240 characters. No hashtags. No emojis. No lists. No quotes. "
+			"Use plain ASCII punctuation and simple wording suitable for a tweet. "
+			"If a subject is provided, make the fact about that subject; otherwise pick any topic."
 		)
 
 	def _try_provider(self, prompt: str) -> Optional[str]:
@@ -100,7 +99,7 @@ class ContentGenerator:
 				resp = self._openai_client.chat.completions.create(
 					model=self.config.provider_model,
 					messages=[
-						{"role": "system", "content": self._tweet_system_prompt()},
+						{"role": "system", "content": self._fact_system_prompt()},
 						{"role": "user", "content": prompt.strip()},
 					],
 					temperature=0.7,
@@ -163,7 +162,7 @@ class ContentGenerator:
 			chat = self._ollama_client.chat(
 				model=self.config.ollama_model,
 				messages=[
-					{"role": "system", "content": self._tweet_system_prompt()},
+					{"role": "system", "content": self._fact_system_prompt()},
 					{"role": "user", "content": prompt.strip()},
 				],
 				options=opts,
@@ -185,7 +184,7 @@ class ContentGenerator:
 			res = self._ollama_client.generate(
 				model=self.config.ollama_model,
 				prompt=(
-					self._tweet_system_prompt()
+					self._fact_system_prompt()
 					+ "\n\nUser: "
 					+ prompt.strip()
 					+ "\nAssistant:"
@@ -213,7 +212,7 @@ class ContentGenerator:
 			return None
 		try:
 			outputs = self._hf_pipeline(
-				f"{self._tweet_system_prompt()}\nUser: {prompt.strip()}\nAssistant:",
+				f"{self._fact_system_prompt()}\nUser: {prompt.strip()}\nAssistant:",
 				max_length=max(40, self.config.max_length),
 				do_sample=True,
 				temperature=0.95,
@@ -228,42 +227,19 @@ class ContentGenerator:
 			return None
 
 	def _fallback(self, prompt: str) -> str:
-		# Heuristic, never echo raw prompt. Build a short motivational line.
+		# Heuristic fallback: simple did-you-know facts
 		try:
 			import random
-			themes = [
-				("discipline", [
-					"Discipline is choosing what you want most over what you want now.",
-					"Small reps, every day. That's how momentum is built.",
-					"Consistency beats intensity when the dust settles.",
-				]),
-				("masculinity", [
-					"Lead yourself first: responsibility, courage, restraint.",
-					"Strength without respect is weakness wearing armor.",
-					"Be the man who chooses character when no one is watching.",
-				]),
-				("women", [
-					"Respect her by respecting yourself: clear standards, steady actions.",
-					"Listen, lead with kindness, and keep your word.",
-					"Admire, don’t idolize; respect, don’t control.",
-				]),
-				("purpose", [
-					"Build your day around your purpose, not your impulses.",
-					"Aim at something worth failing for, then get to work.",
-					"Purpose turns pain into fuel; use it.",
-				]),
+			facts = [
+				"Did you know octopuses have three hearts?",
+				"Did you know honey never spoils? Archaeologists found edible honey in ancient tombs.",
+				"Did you know bananas are berries but strawberries aren’t?",
+				"Did you know the Eiffel Tower can be 15 cm taller in summer due to heat expansion?",
+				"Did you know a day on Venus is longer than its year?",
 			]
-			# bias theme by prompt keywords
-			p = prompt.lower()
-			weights = []
-			for key, lines in themes:
-				w = 2 if key in p else 1
-				weights.append(w)
-			idx = random.choices(range(len(themes)), weights=weights, k=1)[0]
-			line = random.choice(themes[idx][1])
-			return line[: self.config.max_length]
+			return facts[random.randrange(len(facts))][: self.config.max_length]
 		except Exception:
-			return "Keep going. One honest step today beats perfect tomorrow."
+			return "Did you know sharks existed before trees?"
 
 	def _truncate(self, text: str) -> str:
 		# X currently supports 280 chars for standard accounts; allow a small buffer.

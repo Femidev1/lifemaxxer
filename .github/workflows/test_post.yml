@@ -1,20 +1,7 @@
-name: Test post now
+name: Test post fact now
 
 on:
   workflow_dispatch:
-    inputs:
-      use_stoic:
-        description: "[Deprecated] Ignored; test uses post-cycle"
-        required: false
-        default: "false"
-      csv_path:
-        description: "Path to a CSV in repo to ingest (one quote per line)"
-        required: false
-        default: "quotes_public_domain_batch1.csv"
-      ingest_api_count:
-        description: "Number of quotes to fetch from APIs before posting"
-        required: false
-        default: "0"
 
 permissions:
   contents: write
@@ -31,11 +18,6 @@ jobs:
       MAX_LENGTH: 220
       DRY_RUN_DEFAULT: 'false'
       TWITTER_WAIT_ON_RATE_LIMIT: 'true'
-      HORDE_API_KEY: ${{ secrets.HORDE_API_KEY }}
-      HORDE_MODEL: ${{ vars.HORDE_MODEL }}
-      HORDE_NEGATIVE_PROMPT: ${{ vars.HORDE_NEGATIVE_PROMPT }}
-      CYCLE_STATE_PATH: post_cycle_state.json
-      PATTERN_STATE_PATH: pattern_state.json
       RECENT_POSTS_PATH: recent_posts.json
       PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
       PROVIDER_BASE_URL: ${{ vars.PROVIDER_BASE_URL }}
@@ -73,128 +55,7 @@ jobs:
             pip install transformers torch
           fi
 
-      - name: Ingest CSV quotes
-        run: |
-          if [ -f "${{ github.event.inputs.csv_path }}" ]; then
-            python -m bot ingest-csv "${{ github.event.inputs.csv_path }}" --source github
-          else
-            echo "CSV not found at path: ${{ github.event.inputs.csv_path }}" >&2
-            exit 1
-          fi
-
-      - name: Ingest API quotes (optional)
-        if: ${{ github.event.inputs.ingest_api_count != '0' }}
-        run: |
-          python -m bot ingest-apis --count ${{ github.event.inputs.ingest_api_count }} || true
-
-      - name: Initialize author asset folders
-        run: |
-          python -m bot init-authors-folders || true
-
-      - name: Bootstrap pattern state (if missing)
-        run: |
-          if [ ! -f "$PATTERN_STATE_PATH" ]; then
-            echo '{"index": 0}' > "$PATTERN_STATE_PATH"
-            git config user.name "github-actions"
-            git config user.email "github-actions@github.com"
-            git add "$PATTERN_STATE_PATH"
-            git commit -m "chore(test): add initial pattern_state.json [skip ci]" || true
-            git push || true
-          fi
-      - name: Commit updated quotes_master.csv (if changed)
-        run: |
-          if [ -f quotes_master.csv ]; then
-            if git diff --quiet --exit-code -- quotes_master.csv; then
-              echo "No quote changes to commit."
-            else
-              git config user.name "github-actions"
-              git config user.email "github-actions@github.com"
-              git add quotes_master.csv assets
-              git commit -m "chore: update quotes and author folders [skip ci]"
-              git push
-            fi
-          else
-            echo "quotes_master.csv not found after ingest; posting will likely skip."
-          fi
-
-      - name: Decide mode (3x LLM, 4th CSV; every 10th = image)
-        id: decide
-        shell: bash
-        run: |
-          IDX=0
-          if [ -f "${PATTERN_STATE_PATH}" ]; then
-            IDX=$(python -c 'import json,os,pathlib; p=os.getenv("PATTERN_STATE_PATH","pattern_state.json"); f=pathlib.Path(p); print(int(json.load(open(p)).get("index",0)) if f.exists() else 0)')
-          fi
-          MOD4=$(( IDX % 4 ))
-          MOD10=$(( IDX % 10 ))
-          if [ "$MOD10" -eq 9 ]; then
-            echo "mode=image" >> $GITHUB_OUTPUT
-          elif [ "$MOD4" -eq 3 ]; then
-            echo "mode=quote" >> $GITHUB_OUTPUT
-          else
-            echo "mode=llm" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Choose prompt for LLM
-        if: ${{ steps.decide.outputs.mode == 'llm' }}
-        id: choose
-        shell: bash
-        run: |
-          PROMPT=$(python - <<'PY'
-          import random, datetime
-          now = datetime.datetime.utcnow()
-          seed = int(now.strftime("%Y%m%d%H%M%S"))
-          random.seed(seed)
-          prompts = [
-            "Short blunt tweet about discipline, stoicism, purpose, self-control. No hashtags, no emojis.",
-            "Raw, direct one-liner for men about delayed gratification and discipline.",
-            "Harsh truth about purpose over comfort. Be blunt and tight.",
-            "No fluff: one sentence about self-control and restraint.",
-            "Direct reminder: responsibility, courage, restraint. Keep it gritty.",
-          ]
-          print(random.choice(prompts))
-          PY
-          )
-          echo "prompt<<EOF" >> $GITHUB_OUTPUT
-          echo "$PROMPT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Post LLM motivational
-        if: ${{ steps.decide.outputs.mode == 'llm' }}
+      - name: Post a fact
         run: |
           ENGINE_TO_USE=${ENGINE:-auto}
-          python -m bot post "${{ steps.choose.outputs.prompt }}" --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed (generation/provider)"
-
-      - name: Post quote from store (text only)
-        if: ${{ steps.decide.outputs.mode == 'quote' }}
-        run: |
-          python -m bot post-quote-text --no-dry-run || echo "post failed (csv/twitter)"
-
-      - name: Post image with engagement (every 10th)
-        if: ${{ steps.decide.outputs.mode == 'image' }}
-        run: |
-          python -m bot post-engage-image --no-dry-run || echo "post failed (image/csv/twitter)"
-
-      - name: Update pattern state
-        run: |
-          python -c 'import json,os; p=os.getenv("PATTERN_STATE_PATH","pattern_state.json");
-          d={};
-          try:
-            d=json.load(open(p,"r"))
-          except Exception:
-            d={}
-          d["index"]=int(d.get("index",0))+1;
-          open(p,"w").write(json.dumps(d));
-          print("index",d["index"])'
-
-      - name: Commit pattern state
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          if ! git diff --quiet --exit-code -- "$PATTERN_STATE_PATH"; then
-            git add "$PATTERN_STATE_PATH"
-            git commit -m "chore(test): update pattern state [skip ci]" || true
-            git push || true
-          else
-            echo "No pattern state changes to commit."
-          fi
+          python -m bot post-fact --engine "$ENGINE_TO_USE" --no-dry-run || echo "post failed"

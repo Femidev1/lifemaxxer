@@ -1,6 +1,6 @@
-# Lifemaxerbot - Twitter/X AI Bot
+# Lifemaxerbot - Interesting Facts Bot for X
 
-Minimal Twitter bot scaffold using Python, Tweepy, and pluggable content generation: Hosted (OpenAI-compatible), Ollama, or Transformers.
+Minimal Twitter bot that posts a single-line interesting fact: "Did you know ...". Uses Python, Tweepy, and pluggable LLMs (Hosted OpenAI-compatible, Ollama, or Transformers).
 
 ## Quickstart
 
@@ -47,24 +47,24 @@ Optional:
 # Health check
 python -m bot health
 
-# Generate only (engine auto/provider/ollama/hf/fallback)
-python -m bot generate "Prompt" --engine provider
+# Generate a fact (engine auto/provider/ollama/hf/fallback)
+python -m bot generate-fact "black holes" --engine provider
 
-# Generate and post (respecting DRY_RUN_DEFAULT)
-python -m bot post "Prompt" --engine provider
+# Generate and post a fact (respecting DRY_RUN_DEFAULT)
+python -m bot post-fact "the Amazon rainforest" --engine provider
 
 # Force post now
-python -m bot post "Prompt" --engine provider --no-dry-run
+python -m bot post-fact --engine provider --no-dry-run
 
 # Post raw text (no generation)
-python -m bot post-text "Hello world"
+python -m bot post-text "Did you know octopuses have three hearts?"
 ```
 
 ## Railway deployment
 - Push to GitHub and connect the repo on Railway.
 - Set env vars in Railway (Twitter keys + provider vars).
 - Cron job example:
-  - Command: `python -m bot post "Daily tip about healthy habits" --engine provider --no-dry-run`
+  - Command: `python -m bot post-fact --engine provider --no-dry-run`
   - Schedule as desired.
 - If using provider only, you can remove `transformers` from requirements to keep image light.
 
@@ -72,22 +72,7 @@ python -m bot post-text "Hello world"
 - Posting requires proper app permissions (Read + Write) and a plan with write access.
 - Tweets should be under 280 chars; `MAX_LENGTH` is used to truncate.
 
-## Posting cycle (9 text + 1 image)
+## Facts
 
-- New command: `post-cycle` maintains a 10-slot loop.
-  - Slots 1–9: text-only tweets generated from your prompt seed.
-  - Slot 10: an engagement question (randomly chosen) plus an image rendering of a stored quote in monochrome (black-on-white or white-on-black).
-
-Examples:
-
-```bash
-# Seed guides the style for the nine text tweets
-python -m bot post-cycle "Short blunt tweet about discipline, stoicism, purpose, self-control. No hashtags, no emojis." --engine provider --no-dry-run
-
-# Ingest quotes first for the image cycle
-python -m bot ingest-csv quotes_public_domain_batch2.csv
-```
-
-Notes:
-- Cycle index persists to `post_cycle_state.json` (override with `CYCLE_STATE_PATH`).
-- If no eligible quotes are found for the 10th slot, the command will prompt you to ingest.
+- Output format: starts with "Did you know " and ends with punctuation.
+- Keep under 240 characters; the bot truncates to `MAX_LENGTH`.
