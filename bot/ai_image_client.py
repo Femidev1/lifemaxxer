@@ -19,6 +19,7 @@ class AIImageClient:
 		self.config = config
 		self.base_url = (config.horde_base_url or "https://stablehorde.net/api").rstrip("/")
 		self.api_key = config.horde_api_key or "0000000000"  # anonymous
+		self._session = requests.Session()
 
 	def generate(
 		self,
@@ -71,7 +72,7 @@ class AIImageClient:
 			body["params"]["negative_prompt"] = negative_prompt
 		if models:
 			body["models"] = models
-		r = requests.post(url, json=body, headers=headers, timeout=20)
+		r = self._session.post(url, json=body, headers=headers, timeout=20)
 		r.raise_for_status()
 		data = r.json()
 		return data.get("id") if isinstance(data, dict) else None
@@ -91,7 +92,7 @@ class AIImageClient:
 		check_url = f"{self.base_url}/v2/generate/status/{job_id}"
 		headers = {"apikey": self.api_key, "accept": "application/json"}
 		for _ in range(60):  # up to ~60s
-			r = requests.get(check_url, headers=headers, timeout=10)
+			r = self._session.get(check_url, headers=headers, timeout=10)
 			if r.status_code == 404:
 				return None
 			r.raise_for_status()

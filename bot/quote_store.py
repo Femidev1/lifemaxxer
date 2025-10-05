@@ -8,6 +8,7 @@ import uuid
 import random
 import re
 from datetime import datetime, timezone, timedelta
+from filelock import FileLock
 
 
 CSV_HEADER = [
@@ -64,14 +65,16 @@ class QuoteStore:
 				self._by_norm[norm] = row
 
 	def _persist(self):
-		# Write to a temp file and replace
-		tmp_path = self.store_path + ".tmp"
-		with open(tmp_path, "w", newline="", encoding="utf-8") as f:
-			writer = csv.DictWriter(f, fieldnames=CSV_HEADER)
-			writer.writeheader()
-			for r in self.records:
-				writer.writerow({k: r.get(k, "") for k in CSV_HEADER})
-		os.replace(tmp_path, self.store_path)
+		# Write to a temp file and replace (guarded by a file lock)
+		lock = FileLock(self.store_path + ".lock")
+		with lock:
+			tmp_path = self.store_path + ".tmp"
+			with open(tmp_path, "w", newline="", encoding="utf-8") as f:
+				writer = csv.DictWriter(f, fieldnames=CSV_HEADER)
+				writer.writeheader()
+				for r in self.records:
+					writer.writerow({k: r.get(k, "") for k in CSV_HEADER})
+			os.replace(tmp_path, self.store_path)
 
 	def ingest_quote_records(self, records: List[Dict[str, str]], source: str) -> Dict[str, int]:
 		self._ensure_loaded()

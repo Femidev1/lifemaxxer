@@ -11,6 +11,7 @@ class StoicClient:
 
 	def __init__(self, timeout_seconds: int = 10):
 		self.timeout_seconds = max(1, int(timeout_seconds))
+        self._session = requests.Session()
 
 	def fetch_quote(self) -> Optional[Tuple[str, Optional[str]]]:
 		"""Fetch a Stoic quote.
@@ -26,7 +27,7 @@ class StoicClient:
 		]
 		for url, parser in endpoints:
 			try:
-				resp = requests.get(url, timeout=self.timeout_seconds)
+				resp = self._session.get(url, timeout=self.timeout_seconds)
 				resp.raise_for_status()
 				data = resp.json() if resp.content else None
 				parsed = parser(data)

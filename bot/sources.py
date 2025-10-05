@@ -16,7 +16,8 @@ class QuoteSource:
 class ZenQuotesSource(QuoteSource):
 	def fetch(self) -> Optional[str]:
 		try:
-			r = requests.get("https://zenquotes.io/api/random", timeout=10)
+			s = requests.Session()
+			r = s.get("https://zenquotes.io/api/random", timeout=10)
 			r.raise_for_status()
 			data = r.json()
 			if isinstance(data, list) and data:
@@ -40,7 +41,8 @@ class WikiSummarySource(QuoteSource):
 	def fetch(self) -> Optional[str]:
 		try:
 			page = random.choice(self.PAGES)
-			r = requests.get(f"https://en.wikipedia.org/api/rest_v1/page/summary/{page}", timeout=10)
+			s = requests.Session()
+			r = s.get(f"https://en.wikipedia.org/api/rest_v1/page/summary/{page}", timeout=10)
 			r.raise_for_status()
 			txt = (r.json().get("extract") or "").strip()
 			if not txt:

@@ -14,11 +14,12 @@ class ImageMaker:
 	def __init__(self, width: int = 1024, height: int = 1024):
 		self.width = width
 		self.height = height
+		self._session = requests.Session()
 
 	def _fetch_background(self) -> Image.Image:
 		seed = random.randint(1, 10_000_000)
 		url = f"https://picsum.photos/seed/{seed}/{self.width}/{self.height}"
-		r = requests.get(url, timeout=10)
+		r = self._session.get(url, timeout=10)
 		r.raise_for_status()
 		img = Image.open(io.BytesIO(r.content)).convert("RGB")
 		return img

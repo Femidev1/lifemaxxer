@@ -17,6 +17,7 @@ from .ai_image_client import AIImageClient
 from .sources import fetch_quote_rotating
 from .image_prompt import build_sdxl_prompt
 from .quote_store import QuoteStore
+from filelock import FileLock
 
 
 def _author_slug(raw: str) -> str:
@@ -86,6 +87,9 @@ def _classify_author(author: str) -> tuple[str, Optional[str]]:
     return ("celebrities", None)
 
 
+_AUTHOR_IMAGE_CACHE: dict[str, list[str]] = {}
+
+
 def _pick_author_image(author: str) -> Optional[bytes]:
     # Prefer new category structure
     try:
@@ -103,11 +107,14 @@ def _pick_author_image(author: str) -> Optional[bytes]:
             slug = _author_slug(author)
             legacy = os.path.join("assets", "authors", slug, "images")
             base = legacy if os.path.isdir(legacy) else os.path.join("assets", "celebrities", "images")
-        files = []
-        for name in os.listdir(base):
-            p = os.path.join(base, name)
-            if os.path.isfile(p) and name.lower().endswith((".jpg", ".jpeg", ".png")):
-                files.append(p)
+        files = _AUTHOR_IMAGE_CACHE.get(base)
+        if files is None:
+            files = []
+            for name in os.listdir(base):
+                p = os.path.join(base, name)
+                if os.path.isfile(p) and name.lower().endswith((".jpg", ".jpeg", ".png")):
+                    files.append(p)
+            _AUTHOR_IMAGE_CACHE[base] = files
         if not files:
             return None
         path = random.choice(files)
@@ -150,7 +157,8 @@ def _cycle_state_path() -> str:
 def _read_cycle_index() -> int:
     path = _cycle_state_path()
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        lock = FileLock(path + ".lock")
+        with lock, open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
             idx = int(data.get("index", 0))
             return max(0, idx)
@@ -161,7 +169,8 @@ def _read_cycle_index() -> int:
 def _write_cycle_index(idx: int) -> None:
     path = _cycle_state_path()
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        lock = FileLock(path + ".lock")
+        with lock, open(path, "w", encoding="utf-8") as f:
             json.dump({"index": max(0, int(idx))}, f)
     except Exception:
         pass
@@ -189,7 +198,8 @@ def _recent_posts_path() -> str:
 def _read_recent_posts() -> list[str]:
     path = _recent_posts_path()
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        lock = FileLock(path + ".lock")
+        with lock, open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, list):
                 return [str(x) for x in data][-200:]
@@ -201,10 +211,17 @@ def _read_recent_posts() -> list[str]:
 def _write_recent_posts(items: list[str]) -> None:
     path = _recent_posts_path()
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        lock = FileLock(path + ".lock")
+        with lock, open(path, "w", encoding="utf-8") as f:
             json.dump(items[-200:], f)
     except Exception:
         pass
+
+
+def _post_with_media_or_text(twitter: TwitterClient, text: str, image_bytes: Optional[bytes], filename: str) -> Optional[str]:
+	if image_bytes:
+		return twitter.upload_media_and_post(text, image_bytes=image_bytes, filename=filename)
+	return twitter.post_tweet(text)
 
 
 @app.command()
@@ -394,14 +411,8 @@ def post_stoic_image(
     if ai_image:
         try:
             ai = AIImageClient(config)
-            # Build an SDXL-style visual prompt from the tweet via the LLM
-            prompt_seed = (
-                "Craft a concise SDXL visual prompt (max ~50 tokens) matching this Stoic tweet. "
-                "Themes: greek philosopher or greek warrior or modern soldier or battle scene or chess match;"
-                " vibe: dark, mysterious, moody lighting; NO embedded text. Return only the prompt.\n\n"
-                f"Tweet: {tweet}"
-            )
-            vis_prompt = generator.generate(prompt_seed, preferred_engine=engine)
+            # Build SDXL prompt using deterministic template
+            vis_prompt = build_sdxl_prompt(generator, tweet, engine)
             neg = config.horde_negative_prompt or (
                 "text, watermark, signature, logo, blurry, lowres, artifacts, deformed, extra fingers, bad anatomy"
             )
@@ -425,10 +436,7 @@ def post_stoic_image(
     if use_dry_run:
         print("[dry-run] Skipping post.")
         return
-    if image_bytes:
-        tweet_id = twitter.upload_media_and_post(tweet, image_bytes=image_bytes, filename="stoic.jpg")
-    else:
-        tweet_id = twitter.post_tweet(tweet)
+    tweet_id = _post_with_media_or_text(twitter, tweet, image_bytes=image_bytes, filename="stoic.jpg")
     if tweet_id:
         print(f"Posted tweet id: {tweet_id}")
     else:
@@ -498,10 +506,7 @@ def post_auto_image(
         print("[dry-run] Skipping post.")
         return
 
-    if img_bytes:
-        tweet_id = twitter.upload_media_and_post(tweet, image_bytes=img_bytes, filename="auto.jpg")
-    else:
-        tweet_id = twitter.post_tweet(tweet)
+    tweet_id = _post_with_media_or_text(twitter, tweet, image_bytes=img_bytes, filename="auto.jpg")
     # Mark posted if we used a stored quote
     if tweet_id and pick:
         store.mark_posted(pick)
@@ -573,7 +578,7 @@ def post_quote_image(
     if use_dry_run:
         print("[dry-run] Skipping post.")
         return
-    tweet_id = twitter.upload_media_and_post(tweet, image_bytes=img_bytes, filename="quote.jpg") if img_bytes else twitter.post_tweet(tweet)
+    tweet_id = _post_with_media_or_text(twitter, tweet, image_bytes=img_bytes, filename="quote.jpg")
     if tweet_id:
         store.mark_posted(pick)
         print(f"Posted tweet id: {tweet_id}")
@@ -769,7 +774,7 @@ def post_engage_image(
     if use_dry_run:
         print("[dry-run] Skipping post.")
         return
-    tweet_id = twitter.upload_media_and_post(tweet_text, image_bytes=image_bytes, filename="engage.jpg")
+    tweet_id = _post_with_media_or_text(twitter, tweet_text, image_bytes=image_bytes, filename="engage.jpg")
     if tweet_id:
         store.mark_posted(pick)
         print(f"Posted tweet id: {tweet_id}")
