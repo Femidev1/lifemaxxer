@@ -59,26 +59,26 @@ class ContentGenerator:
 		engine = (preferred_engine or "auto").strip().lower()
 		if engine == "provider":
 			text = self._try_provider(prompt)
-			return self._truncate(text or "")
+			return self._truncate(self._format_fact_out(text or ""))
 		if engine == "ollama":
 			text = self._try_ollama(prompt)
-			return self._truncate(text or "")
+			return self._truncate(self._format_fact_out(text or ""))
 		if engine == "hf":
 			text = self._try_hf(prompt)
-			return self._truncate(text or "")
+			return self._truncate(self._format_fact_out(text or ""))
 		if engine == "fallback":
 			return self._truncate(self._fallback(prompt))
 
 		# auto: try hosted provider → ollama → hf → fallback
 		text = self._try_provider(prompt)
 		if text:
-			return self._truncate(text)
+			return self._truncate(self._format_fact_out(text))
 		text = self._try_ollama(prompt)
 		if text:
-			return self._truncate(text)
+			return self._truncate(self._format_fact_out(text))
 		text = self._try_hf(prompt)
 		if text:
-			return self._truncate(text)
+			return self._truncate(self._format_fact_out(text))
 		return self._truncate(self._fallback(prompt))
 
 	def _fact_system_prompt(self) -> str:
@@ -213,16 +213,18 @@ class ContentGenerator:
 		try:
 			outputs = self._hf_pipeline(
 				f"{self._fact_system_prompt()}\nUser: {prompt.strip()}\nAssistant:",
-				max_length=max(40, self.config.max_length),
+				return_full_text=False,
+				truncation=True,
+				max_new_tokens=min(160, max(40, self.config.max_length)),
 				do_sample=True,
-				temperature=0.95,
+				temperature=0.9,
 				top_p=0.92,
 				num_return_sequences=1,
 			)
 			if not outputs:
 				return None
-			text = outputs[0].get("generated_text")
-			return text.strip() if text else None
+			text = outputs[0].get("generated_text") or outputs[0].get("generated_texts")
+			return str(text).strip() if text else None
 		except Exception:
 			return None
 
@@ -240,6 +242,30 @@ class ContentGenerator:
 			return facts[random.randrange(len(facts))][: self.config.max_length]
 		except Exception:
 			return "Did you know sharks existed before trees?"
+
+	def _format_fact_out(self, text: str) -> str:
+		"""Normalize any raw model output to a single-line 'Did you know ...' fact."""
+		if not text:
+			return ""
+		clean = text.strip()
+		# Remove any leading system/prompt echoes
+		marker = "Assistant:"
+		if marker in clean:
+			clean = clean.split(marker, 1)[1].strip()
+		# Drop surrounding quotes/backticks
+		if (clean.startswith("\"") and clean.endswith("\"")) or (clean.startswith("'") and clean.endswith("'")):
+			clean = clean[1:-1].strip()
+		if (clean.startswith("`") and clean.endswith("`")):
+			clean = clean[1:-1].strip()
+		# Ensure prefix
+		prefix = "Did you know "
+		lc = clean.lower()
+		if not lc.startswith("did you know "):
+			clean = prefix + clean.lstrip("-•* ")
+		# Ensure ending punctuation
+		if not clean.endswith((".", "?")):
+			clean = clean.rstrip() + "."
+		return clean
 
 	def _truncate(self, text: str) -> str:
 		# X currently supports 280 chars for standard accounts; allow a small buffer.
