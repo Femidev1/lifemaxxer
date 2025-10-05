@@ -178,6 +178,10 @@ def _recent_posts_path() -> str:
     return os.getenv("RECENT_POSTS_PATH", "recent_posts.json")
 
 
+def _thread_state_path() -> str:
+    return os.getenv("THREAD_STATE_PATH", "thread_state.json")
+
+
 def _read_recent_posts() -> list[str]:
     path = _recent_posts_path()
     try:
@@ -197,6 +201,27 @@ def _write_recent_posts(items: list[str]) -> None:
         lock = FileLock(path + ".lock")
         with lock, open(path, "w", encoding="utf-8") as f:
             json.dump(items[-200:], f)
+    except Exception:
+        pass
+
+
+def _read_post_counter() -> int:
+    path = _thread_state_path()
+    try:
+        lock = FileLock(path + ".lock")
+        with lock, open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return int(data.get("since_last_thread", 0))
+    except Exception:
+        return 0
+
+
+def _write_post_counter(val: int) -> None:
+    path = _thread_state_path()
+    try:
+        lock = FileLock(path + ".lock")
+        with lock, open(path, "w", encoding="utf-8") as f:
+            json.dump({"since_last_thread": max(0, int(val))}, f)
     except Exception:
         pass
 
@@ -296,6 +321,33 @@ def post_fact(
     tweet_id = twitter.post_tweet(tweet)
     if tweet_id:
         print(f"Posted tweet id: {tweet_id}")
+        # Update recent cache
+        cache = _read_recent_posts()
+        cache.append(tweet)
+        _write_recent_posts(cache)
+        # Increment post counter and trigger thread every 15 posts
+        count = _read_post_counter() + 1
+        if count >= 15:
+            facts: list[str] = []
+            seen = set(cache[-500:])
+            for _ in range(50):  # up to 50 attempts to gather 10 unique facts
+                cand = generator.generate("Make up any interesting fact.", preferred_engine=engine)
+                cand = _truncate_to_limit(_sanitize_no_emdash((cand or '').strip()), config.max_length)
+                if cand and cand not in seen:
+                    facts.append(cand)
+                    seen.add(cand)
+                if len(facts) == 10:
+                    break
+            if facts:
+                head = "10 interesting things you didn’t know until now:"
+                thread_texts = [head] + [f"{i+1}. {t}" for i, t in enumerate(facts)]
+                ids = twitter.post_thread(thread_texts)
+                if ids:
+                    print(f"Posted thread with {len(ids)} tweets")
+            count_after = 0
+        else:
+            count_after = count
+        _write_post_counter(count_after)
     else:
         print("[skip] No post (rate-limited or error).")
 

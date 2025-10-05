@@ -136,3 +136,45 @@ class TwitterClient:
 		if isinstance(last_error, tweepy.TooManyRequests):
 			print("[rate-limit] Exhausted retries due to Twitter rate limit; giving up for now.")
 		return None
+
+	def post_thread(self, texts: list[str], dry_run: bool = False) -> list[str]:
+		"""Post a thread (tweet + replies). Returns list of tweet ids in order if successful, else empty list."""
+		if not isinstance(texts, list) or not texts:
+			return []
+		cleaned = [str(t).strip() for t in texts if t and str(t).strip()]
+		if not cleaned or dry_run:
+			return []
+		client = self._build_client()
+		ids: list[str] = []
+		in_reply_to: Optional[str] = None
+		for index, t in enumerate(cleaned):
+			last_error: Optional[Exception] = None
+			for attempt in range(3):
+				try:
+					kwargs = {"text": t}
+					if in_reply_to is not None:
+						kwargs["reply"] = {"in_reply_to_tweet_id": in_reply_to}
+					resp = client.create_tweet(**kwargs)
+					if hasattr(resp, "data") and isinstance(resp.data, dict):
+						tweet_id = resp.data.get("id")
+						if tweet_id:
+							ids.append(tweet_id)
+							in_reply_to = tweet_id
+							break
+					return []
+				except tweepy.TooManyRequests as e:
+					delay = self._compute_retry_delay_seconds(e, attempt)
+					print(f"[rate-limit] waiting {delay}s before continuing thread (part {index+1}/{len(cleaned)})")
+					time.sleep(delay)
+					last_error = e
+					continue
+				except Exception as e:
+					print(f"[twitter-error-thread] {type(e).__name__}: {e}")
+					last_error = e
+					break
+			if len(ids) != index + 1:
+				# Failed to post this part; abort thread
+				return ids
+			# tiny pause to avoid burst limits
+			time.sleep(1)
+		return ids
