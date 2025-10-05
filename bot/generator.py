@@ -83,10 +83,13 @@ class ContentGenerator:
 
 	def _fact_system_prompt(self) -> str:
 		return (
-			"You generate a single interesting fact in one sentence. "
-			"The output MUST begin with 'Did you know ' and end with a period or a question mark. "
-			"Keep it under 240 characters. No hashtags. No emojis. No lists. No quotes. "
-			"Use plain ASCII punctuation and simple wording suitable for a tweet. "
+			"You generate a single interesting fact in exactly ONE sentence. "
+			"Return ONLY the sentence, nothing else. "
+			"The sentence MUST begin with 'Did you know ' and then the fact. "
+			"End the sentence with either a '?' or '!' only (not a period). "
+			"Never spell out punctuation (do not write 'question mark' or 'exclamation point'). "
+			"No hashtags, no emojis, no quotes, no lists, no prefaces (e.g., 'Sure,' or 'Here is a fact:'), no disclaimers. "
+			"Use plain ASCII punctuation and keep under 240 characters. "
 			"If a subject is provided, make the fact about that subject; otherwise pick any topic."
 		)
 
@@ -217,7 +220,7 @@ class ContentGenerator:
 				truncation=True,
 				max_new_tokens=min(160, max(40, self.config.max_length)),
 				do_sample=True,
-				temperature=0.9,
+				temperature=0.7,
 				top_p=0.92,
 				num_return_sequences=1,
 			)
@@ -257,6 +260,13 @@ class ContentGenerator:
 			clean = clean[1:-1].strip()
 		if (clean.startswith("`") and clean.endswith("`")):
 			clean = clean[1:-1].strip()
+		# If the model printed extra lines, keep the part starting at the first 'Did you know'
+		try:
+			idx = clean.lower().find("did you know ")
+			if idx >= 0:
+				clean = clean[idx:].strip()
+		except Exception:
+			pass
 		# Ensure prefix
 		prefix = "Did you know "
 		lc = clean.lower()
@@ -277,6 +287,11 @@ class ContentGenerator:
 			body = re.sub(r"^(?i:did)\s+", "", body)
 			# trim leading punctuation/spaces
 			body = re.sub(r"^[\s:;,.\-–—]+", "", body)
+			# replace spelled punctuation at end with symbols
+			body = re.sub(r"[\s,]*(?i:question\s+mark)\.?$", "?", body)
+			body = re.sub(r"[\s,]*(?i:exclamation(?:\s+point|\s+mark)?)\.?$", "!", body)
+			# collapse whitespace/newlines
+			body = re.sub(r"\s+", " ", body).strip()
 		except Exception:
 			# Fallback simple trims
 			if body.lower().startswith("that "):
@@ -284,10 +299,21 @@ class ContentGenerator:
 			if body.lower().startswith("did "):
 				body = body[4:]
 			body = body.lstrip(" :;,.\-–—")
+		# Reassemble and ensure single sentence ending with ? or !
 		clean = prefix + body
-		# Ensure ending punctuation
-		if not clean.endswith((".", "?")):
-			clean = clean.rstrip() + "."
+		# Truncate at first ? or ! or . and enforce ?/!
+		qm = clean.find("?")
+		ex = clean.find("!")
+		pm = clean.find(".")
+		positions = [p for p in [qm, ex, pm] if p != -1]
+		if positions:
+			p = min(positions)
+			end = clean[p]
+			clean = clean[: p + 1]
+			if end == ".":
+				clean = clean[:-1] + "?"
+		else:
+			clean = clean.rstrip() + "?"
 		return clean
 
 	def _truncate(self, text: str) -> str:
